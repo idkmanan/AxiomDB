@@ -1,0 +1,96 @@
+# =============================================================================
+# Development Docker Compose with PostgreSQL (Standard)
+# =============================================================================
+# Usage: docker-compose -f docker-compose.dev.yml up --build
+#        docker-compose -f docker-compose.dev.yml up -d  (detached)
+#        docker-compose -f docker-compose.dev.yml logs -f app
+#        docker-compose -f docker-compose.dev.yml down -v (clean volumes)
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL: Local database for development
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: acquisitions-postgres-dev
+    hostname: postgres
+    env_file:
+      - .env.development
+    environment:
+      - POSTGRES_USER=neon
+      - POSTGRES_PASSWORD=npg
+      - POSTGRES_DB=neondb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    networks:
+      - acquisitions-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neon -d neondb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+  # Application: Express.js API Server
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: acquisitions-app-dev
+    hostname: app
+    env_file:
+      - .env.development
+    ports:
+      - "3000:3000"
+    volumes:
+      # Bind mount source for hot reload
+      - .:/app
+      # Exclude node_modules from bind mount (use container's)
+      - /app/node_modules
+      # Persist logs
+      - ./logs:/app/logs
+    networks:
+      - acquisitions-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    # Use stdin_open and tty for proper signal handling with --watch
+    stdin_open: true
+    tty: true
+
+  # ---------------------------------------------------------------------------
+  # Optional: Database Management UI (Adminer)
+  # ---------------------------------------------------------------------------
+  # Uncomment to enable Adminer for database inspection
+  # Access at http://localhost:8080
+  # Server: postgres, User: neon, Password: npg, Database: neondb
+  # ---------------------------------------------------------------------------
+  # adminer:
+  #   image: adminer:latest
+  #   container_name: acquisitions-adminer
+  #   ports:
+  #     - "8080:8080"
+  #   networks:
+  #     - acquisitions-dev
+  #   depends_on:
+  #     - postgres
+  #   restart: unless-stopped
+
+networks:
+  acquisitions-dev:
+    name: acquisitions-dev-network
+    driver: bridge
+
+volumes:
+  postgres-dev-data:
+    name: acquisitions-postgres-dev-data

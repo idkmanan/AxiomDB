@@ -1,0 +1,94 @@
+# =============================================================================
+# Production Docker Compose
+# =============================================================================
+# Usage: docker-compose -f docker-compose.prod.yml up --build -d
+#        docker-compose -f docker-compose.prod.yml logs -f app
+#        docker-compose -f docker-compose.prod.yml down
+# =============================================================================
+# 
+# IMPORTANT: This compose file expects environment variables to be set via:
+#   - .env.production file (for local testing only)
+#   - Platform secrets (Vercel, Railway, Render, AWS, etc.)
+#   - CI/CD pipeline variables
+#
+# REQUIRED SECRETS (never commit these):
+#   - DATABASE_URL (Neon Cloud connection string)
+#   - JWT_SECRET (min 32 chars: openssl rand -base64 32)
+#   - COOKIE_SECRET (random string)
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application: Express.js API Server (Production)
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: acquisitions-app-prod
+    hostname: app
+    env_file:
+      - .env.production
+    ports:
+      # Only expose port 3000; use reverse proxy (nginx, Traefik, Cloudflare) for TLS
+      - "3000:3000"
+    networks:
+      - acquisitions-prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) process.exit(1)})"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Optional: Reverse Proxy (Nginx) for TLS Termination
+  # ---------------------------------------------------------------------------
+  # Uncomment and configure if running directly on a VM without managed TLS
+  # ---------------------------------------------------------------------------
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: acquisitions-nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   networks:
+  #     - acquisitions-prod
+  #   depends_on:
+  #     - app
+  #   restart: unless-stopped
+
+networks:
+  acquisitions-prod:
+    name: acquisitions-prod-network
+    driver: bridge
+    # Enable IPv6 if needed
+    # enable_ipv6: true
+
+# No volumes needed for production (stateless app, Neon Cloud handles DB)
+# If you add Redis or other services, define volumes here
