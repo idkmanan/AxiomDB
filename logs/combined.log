@@ -78,3 +78,69 @@
 {"level":"info","message":"User xyzw@gmail.com created successfully","service":"acquisitions-api"}
 {"level":"info","message":"User signed up successfully: xyzw@gmail.com","service":"acquisitions-api"}
 {"level":"info","message":"::ffff:192.168.65.1 - - [25/Jul/2026:17:39:44 +0000] \"POST /api/auth/sign-up HTTP/1.1\" 201 109 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"level":"info","message":"Hello From Acquisitions!!!","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:07:38 +0000] \"GET / HTTP/1.1\" 304 - \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.129.1 Chrome/148.0.7778.280 Electron/42.6.0 Safari/537.36\"","service":"acquisitions-api"}
+{"level":"info","message":"Hello From Acquisitions!!!","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:08:27 +0000] \"GET / HTTP/1.1\" 304 - \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.129.1 Chrome/148.0.7778.280 Electron/42.6.0 Safari/537.36\"","service":"acquisitions-api"}
+{"level":"info","message":"Getting all the users","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:08:37 +0000] \"GET /api/users HTTP/1.1\" 200 351 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.129.1 Chrome/148.0.7778.280 Electron/42.6.0 Safari/537.36\"","service":"acquisitions-api"}
+{"level":"info","message":"Hello From Acquisitions!!!","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:26:51 +0000] \"GET / HTTP/1.1\" 304 - \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.129.1 Chrome/148.0.7778.280 Electron/42.6.0 Safari/537.36\"","service":"acquisitions-api"}
+{"ip":"::ffff:172.19.0.1","level":"warn","message":"Authentication failed - no token provided","path":"/2","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:27:06 +0000] \"GET /api/users/2 HTTP/1.1\" 401 66 \"-\" \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Code/1.129.1 Chrome/148.0.7778.280 Electron/42.6.0 Safari/537.36\"","service":"acquisitions-api"}
+{"level":"info","message":"User authenticated successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"User signed in successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:28:35 +0000] \"POST /api/auth/sign-in HTTP/1.1\" 200 102 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:30:12 +0000] \"GET /api/users/2 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:30:59 +0000] \"GET /api/users/1 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:32:30 +0000] \"GET /api/users/1 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:33:13 +0000] \"GET /api/users/2 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"level":"info","message":"User authenticated successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"User signed in successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:34:08 +0000] \"POST /api/auth/sign-in HTTP/1.1\" 200 102 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [25/Jul/2026:18:35:17 +0000] \"GET /api/users/2 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"ip":"::ffff:172.19.0.1","level":"warn","message":"Authentication failed - no token provided","path":"/2","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:01:38 +0000] \"GET /api/users/2 HTTP/1.1\" 401 66 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"level":"info","message":"User authenticated successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"User signed in successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:02:16 +0000] \"POST /api/auth/sign-in HTTP/1.1\" 200 102 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:02:27 +0000] \"GET /api/users/2 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:03:22 +0000] \"GET /api/users/2 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Validation error getting user by ID","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:07:05 +0000] \"GET /api/users/2 HTTP/1.1\" 400 65 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"level":"info","message":"User authenticated successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"User signed in successfully: xyzw@gmail.com","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:18:12 +0000] \"POST /api/auth/sign-in HTTP/1.1\" 200 102 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"info","message":"Getting user by ID: 2","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:19:19 +0000] \"GET /api/users/2 HTTP/1.1\" 200 191 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"ip":"::ffff:172.19.0.1","level":"warn","message":"Authentication failed - no token provided","path":"/","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:24:08 +0000] \"GET /api/users/ HTTP/1.1\" 401 66 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"warn","message":"Authorization failed - insufficient permissions","path":"/","requiredRoles":["admin"],"service":"acquisitions-api","userId":2,"userRole":"user"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:24:50 +0000] \"GET /api/users/ HTTP/1.1\" 403 58 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"info","message":"Getting all the users","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:26:39 +0000] \"GET /api/users/ HTTP/1.1\" 200 352 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"info","message":"Deleting user: 1 by user: 2 (role: user)","service":"acquisitions-api"}
+{"level":"warn","message":"Unauthorized delete attempt: user 2 tried to delete user 1","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:27:13 +0000] \"DELETE /api/users/1 HTTP/1.1\" 403 70 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
+{"level":"info","message":"Deleting user: 2 by user: 2 (role: user)","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:27:23 +0000] \"DELETE /api/users/2 HTTP/1.1\" 200 39 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
