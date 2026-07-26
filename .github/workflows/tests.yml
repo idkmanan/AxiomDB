@@ -1,0 +1,116 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      NODE_OPTIONS: --experimental-vm-modules
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: coverage/
+          retention-days: 30
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-final.json ]; then
+            echo "## Test Coverage Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            node -e "
+              const fs = require('fs');
+              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-final.json', 'utf8'));
+              let totalStatements = 0, coveredStatements = 0;
+              let totalBranches = 0, coveredBranches = 0;
+              let totalFunctions = 0, coveredFunctions = 0;
+              let totalLines = 0, coveredLines = 0;
+              
+              Object.values(coverage).forEach(file => {
+                if (file.s) {
+                  Object.values(file.s).forEach(count => {
+                    totalStatements++;
+                    if (count > 0) coveredStatements++;
+                  });
+                }
+                if (file.b) {
+                  Object.values(file.b).forEach(branches => {
+                    branches.forEach(count => {
+                      totalBranches++;
+                      if (count > 0) coveredBranches++;
+                    });
+                  });
+                }
+                if (file.f) {
+                  Object.values(file.f).forEach(count => {
+                    totalFunctions++;
+                    if (count > 0) coveredFunctions++;
+                  });
+                }
+                if (file.l) {
+                  Object.values(file.l).forEach(count => {
+                    totalLines++;
+                    if (count > 0) coveredLines++;
+                  });
+                }
+              });
+              
+              const pct = (covered, total) => total > 0 ? ((covered / total) * 100).toFixed(2) : 'N/A';
+              
+              console.log('| Metric | Coverage |');
+              console.log('|--------|----------|');
+              console.log(\`| Statements | \${pct(coveredStatements, totalStatements)}% (\${coveredStatements}/\${totalStatements}) |\`);
+              console.log(\`| Branches | \${pct(coveredBranches, totalBranches)}% (\${coveredBranches}/\${totalBranches}) |\`);
+              console.log(\`| Functions | \${pct(coveredFunctions, totalFunctions)}% (\${coveredFunctions}/\${totalFunctions}) |\`);
+              console.log(\`| Lines | \${pct(coveredLines, totalLines)}% (\${coveredLines}/\${totalLines}) |\`);
+            " >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No coverage report found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Annotate test failures
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (fs.existsSync('coverage/coverage-final.json')) {
+              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-final.json', 'utf8'));
+              // Find files with low coverage
+              Object.entries(coverage).forEach(([file, data]) => {
+                if (data.l) {
+                  Object.entries(data.l).forEach(([line, count]) => {
+                    if (count === 0) {
+                      core.warning(`Line ${line} in ${file} is not covered`, {file, line: parseInt(line)});
+                    }
+                  });
+                }
+              });
+            }

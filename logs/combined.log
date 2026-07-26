@@ -144,3 +144,9 @@
 {"email":"xyzw@gmail.com","level":"debug","message":"User authenticated","role":"user","service":"acquisitions-api","userId":2}
 {"level":"info","message":"Deleting user: 2 by user: 2 (role: user)","service":"acquisitions-api"}
 {"level":"info","message":"::ffff:172.19.0.1 - - [26/Jul/2026:13:27:23 +0000] \"DELETE /api/users/2 HTTP/1.1\" 200 39 \"-\" \"PostmanRuntime/7.49.1\"","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [26/Jul/2026:13:56:23 +0000] \"GET /health HTTP/1.1\" 200 75 \"-\" \"-\"","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [26/Jul/2026:13:56:23 +0000] \"GET /api HTTP/1.1\" 200 42 \"-\" \"-\"","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [26/Jul/2026:13:56:23 +0000] \"GET /nonexistant HTTP/1.1\" 404 27 \"-\" \"-\"","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [26/Jul/2026:13:56:53 +0000] \"GET /health HTTP/1.1\" 200 75 \"-\" \"-\"","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [26/Jul/2026:13:56:53 +0000] \"GET /api HTTP/1.1\" 200 42 \"-\" \"-\"","service":"acquisitions-api"}
+{"level":"info","message":"::ffff:127.0.0.1 - - [26/Jul/2026:13:56:53 +0000] \"GET /nonexistant HTTP/1.1\" 404 27 \"-\" \"-\"","service":"acquisitions-api"}
