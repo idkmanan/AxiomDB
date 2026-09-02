@@ -1,0 +1,141 @@
+# =============================================================================
+# Benchmark environment — Phase 0 baseline
+# =============================================================================
+# Purpose: measure the UNMODIFIED application (tag v0-baseline) under load, on
+# infrastructure whose resources are pinned so results are comparable across
+# machines and across future phases.
+#
+#   docker compose -f docker-compose.bench.yml --env-file .env.bench up -d --build
+#
+# REQUIRES Compose V2 (the `docker compose` plugin). Under Compose V1
+# (`docker-compose`, the Python implementation) `deploy.resources.limits` is
+# silently IGNORED — containers would run unconstrained and the benchmark would
+# measure the host machine rather than a pinned environment. run-baseline.sh
+# reads the limits back via `docker inspect` and aborts if they did not apply,
+# rather than trusting this file.
+#
+# Design notes that matter for measurement validity:
+#   * Every image is pinned to an exact patch version. "postgres:16-alpine" is a
+#     moving target; a minor bump between the v0 and v8 runs would silently
+#     invalidate the comparison.
+#   * CPU and memory limits are explicit. Without them the baseline is a
+#     measurement of the host machine, not of the code.
+#   * Postgres logs slow queries and enables pg_stat_statements so Phase 3 has
+#     query-level evidence, not just HTTP-level latency.
+#   * Port 5433 on the host, not 5432, so this never collides with the dev stack
+#     in docker-compose.dev.yml.
+# =============================================================================
+
+name: acq-bench
+
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: acq-bench-postgres
+    hostname: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bench}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.bench}
+      POSTGRES_DB: ${POSTGRES_DB:-benchdb}
+      # Deterministic planner behaviour across runs.
+      PGOPTIONS: "-c jit=off"
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-200}
+      - -c
+      - log_min_duration_statement=200
+      - -c
+      - log_statement=none
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-256MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-8MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-768MB}
+      - -c
+      - track_io_timing=on
+    ports:
+      - "${PG_HOST_PORT:-5433}:5432"
+    volumes:
+      - bench-pgdata:/var/lib/postgresql/data
+    networks: [bench]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bench} -d ${POSTGRES_DB:-benchdb}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "${PG_CPUS:-1.0}"
+          memory: ${PG_MEMORY:-1G}
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # 'development' target is REQUIRED, not a shortcut. src/config/database.js:8
+      # only constructs a pg.Pool when NODE_ENV === 'development'; any other value
+      # routes through the Neon HTTP driver, which cannot talk to local Postgres.
+      # Recorded as a Phase 0 finding — Phase 3 removes this branch.
+      target: development
+    container_name: acq-bench-app
+    hostname: app
+    env_file:
+      - .env.bench
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bench}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-benchdb}
+      # Declared here (not only in env_file) so the runner can flip it per run via
+      # the shell environment. Values in `environment:` override env_file, and
+      # `docker compose up` has no -e flag — this is the only way to vary it
+      # without editing .env.bench between runs.
+      BENCH_BYPASS_SECURITY: ${BENCH_BYPASS_SECURITY:-0}
+    # Hot-reload is off: --watch adds an fs watcher and restart risk mid-run.
+    command: ["node", "src/index.js"]
+    ports:
+      - "${APP_HOST_PORT:-3000}:3000"
+    networks: [bench]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "${APP_CPUS:-1.0}"
+          memory: ${APP_MEMORY:-512M}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # cAdvisor-free resource sampling: a tiny sidecar that records container CPU and
+  # memory each second, so a latency spike can be attributed to saturation rather
+  # than guessed at.
+  sampler:
+    image: alpine:3.20
+    container_name: acq-bench-sampler
+    profiles: ["observe"]
+    volumes:
+      - ./benchmarks:/out
+    command:
+      - sh
+      - -c
+      - "while true; do date -u +%FT%TZ >> /out/.sampler.log; sleep 1; done"
+    networks: [bench]
+
+networks:
+  bench:
+    name: acq-bench-network
+    driver: bridge
+
+volumes:
+  bench-pgdata:
+    name: acq-bench-pgdata

@@ -1,2 +1,0 @@
-{"level":"error","message":"Error creating the user: Error: Failed query: select \"id\", \"name\", \"email\", \"password\", \"role\", \"created_at\", \"updated_at\" from \"users\" where \"users\".\"email\" = $1 limit $2\nparams: test@example.com,1","service":"acquisitions-api"}
-{"level":"error","message":"Error during signup: Error: Failed query: select \"id\", \"name\", \"email\", \"password\", \"role\", \"created_at\", \"updated_at\" from \"users\" where \"users\".\"email\" = $1 limit $2\nparams: test@example.com,1","service":"acquisitions-api"}

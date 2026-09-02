@@ -26,7 +26,13 @@
     "db:studio": "drizzle-kit studio",
     "dev:docker": "sh ./scripts/dev.sh",
     "prod:docker": "sh ./scripts/prod.sh",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest"
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "bench:up": "docker compose -f docker-compose.bench.yml --env-file .env.bench up -d --build",
+    "bench:down": "docker compose -f docker-compose.bench.yml --env-file .env.bench down -v",
+    "bench:seed": "node benchmarks/scripts/seed.mjs",
+    "bench:baseline": "bash ./benchmarks/scripts/run-baseline.sh",
+    "bench:report": "node benchmarks/scripts/report.mjs",
+    "bench:smoke": "k6 run -e VUS=10 -e DURATION=20s -e RAMP_UP=5s -e RAMP_DOWN=5s -e RUN_TAG=smoke benchmarks/k6/baseline.js"
   },
   "repository": {
     "type": "git",

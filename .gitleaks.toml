@@ -1,0 +1,65 @@
+# gitleaks configuration
+# Extends the default ruleset (100+ credential patterns) rather than replacing it.
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Custom rule: Postgres / Neon connection strings.
+# The default ruleset does not reliably catch these, and it is exactly what
+# leaked in commit 4d0ae6e.
+# ---------------------------------------------------------------------------
+[[rules]]
+id = "postgres-connection-string"
+description = "PostgreSQL connection URI containing an inline password"
+regex = '''postgres(?:ql)?://[A-Za-z0-9._%+-]+:[^:@\s/'"]{6,}@[A-Za-z0-9.-]+'''
+tags = ["database", "credential"]
+keywords = ["postgres://", "postgresql://"]
+
+[rules.allowlist]
+# Placeholder values in docs and templates are not secrets.
+regexes = [
+  '''postgres(?:ql)?://[^:]+:(?:npg|password|pass|changeme|secret|user|postgres|bench|\*+|<[^>]+>|\$\{[^}]+\})@''',
+  '''postgres(?:ql)?://user:pass@''',
+]
+
+[[rules]]
+id = "redis-connection-string"
+description = "Redis URI containing an inline password"
+regex = '''redis(?:s)?://[A-Za-z0-9._%+-]*:[^:@\s/'"]{6,}@[A-Za-z0-9.-]+'''
+tags = ["cache", "credential"]
+keywords = ["redis://", "rediss://"]
+
+[rules.allowlist]
+regexes = ['''redis(?:s)?://[^:]*:(?:password|changeme|secret|bench|\*+|<[^>]+>|\$\{[^}]+\})@''']
+
+# ---------------------------------------------------------------------------
+# Global allowlist
+# ---------------------------------------------------------------------------
+[allowlist]
+description = "Known-safe paths and already-remediated historical commits"
+
+paths = [
+  '''\.env\.example$''',
+  '''\.env\.bench\.example$''',
+  '''\.gitleaks\.toml$''',
+  '''(^|/)package-lock\.json$''',
+  '''^coverage/''',
+  '''^benchmarks/''',
+]
+
+# Historical exposure, deliberately acknowledged rather than hidden:
+#
+#   4d0ae6e08a19e9ee800a05a4d1f82a39fc344530  db: setup Neon Postgres with Drizzle
+#   0293358eb1836f78c1bcad4677e78ad3c2d9de63  logs: Added logging and middleware
+#
+# These two commits contain a Neon connection string with a password. The
+# credential was ROTATED after discovery, so the exposed value is dead, and the
+# project has since dropped the Neon HTTP driver entirely (Phase 3).
+#
+# They are allowlisted by exact SHA — not by pattern — so any NEW leak still
+# fails the build. Removing these two lines and running
+# `gitleaks detect --no-git=false` reproduces the original finding.
+commits = [
+  "4d0ae6e08a19e9ee800a05a4d1f82a39fc344530",
+  "0293358eb1836f78c1bcad4677e78ad3c2d9de63",
+]

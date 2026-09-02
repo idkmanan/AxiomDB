@@ -1,5 +1,27 @@
-node_modules
+# ---- dependencies ----
+node_modules/
+
+# ---- secrets ----
+# Ignore every env file, then explicitly re-include the committed templates.
+# The negation must come AFTER the broad rule or git ignores it.
 .env
 .env.*
-logs/.neon_local/
-logs/*
+!.env.example
+!.env.bench.example
+
+# ---- generated / local state ----
+coverage/
+logs/
+*.log
+.neon_local/
+
+# ---- benchmark output ----
+# Raw k6 summaries ARE committed on purpose: they are the evidence behind the
+# latency claims. Only the noisy per-iteration stream is excluded (large, adds nothing).
+benchmarks/**/raw-stream-*.json
+
+# ---- editor / OS ----
+.DS_Store
+.idea/
+.vscode/
+*.swp

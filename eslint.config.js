@@ -48,6 +48,20 @@ export default [
     },
   },
   {
+    // k6 scripts run in the k6 JS runtime (goja), not Node. They have __ENV and
+    // their own module resolution, and they are never executed by Node — so
+    // linting them with Node globals produces false positives.
+    files: ['benchmarks/k6/**/*.js'],
+    languageOptions: {
+      globals: {
+        __ENV: 'readonly',
+        __VU: 'readonly',
+        __ITER: 'readonly',
+        console: 'readonly',
+      },
+    },
+  },
+  {
     ignores: ['node_modules/**', 'coverage/**', 'logs/**', 'drizzle/**'],
   },
 ];
