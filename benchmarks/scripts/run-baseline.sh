@@ -104,7 +104,7 @@ for i in $(seq 1 60); do
   fi
   if [ "$i" = 60 ]; then
     red "app never became healthy — dumping logs"
-    docker compose -f "$COMPOSE_FILE" logs --tail 50 app
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail 50 app
     exit 1
   fi
   sleep 1
