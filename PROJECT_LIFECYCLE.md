@@ -14,8 +14,8 @@ commit messages and docs. Every finding cites a file and line or a command outpu
 
 | Phase | Status | Started | Completed | Deliverable |
 |---|---|---|---|---|
-| 0 — Baseline measurement | Harness complete & verified; **awaiting benchmark run on a Docker host** | 2026-09-01 | — | Reproducible benchmark harness + v0 numbers |
-| 1 — Correctness & security | Not started | — | — | Defect-free baseline |
+| 0 — Baseline measurement | **Complete** — matrix executed, results committed, findings F-01..F-20 recorded | 2026-09-01 | 2026-09-03 | Reproducible benchmark harness + v0 numbers |
+| 1 — Correctness & security | Next | — | — | Defect-free baseline |
 | 2 — TypeScript migration | Not started | — | — | Strict-typed source |
 | 3 — Postgres foundation | Not started | — | — | Pooling, indexes, pagination, isolation |
 | 4 — Redis: limits & tokens | Not started | — | — | Distributed rate limiting, refresh rotation |
@@ -205,15 +205,20 @@ placeholder or estimated figures are committed.
 - [x] Measurement control implemented, extracted, and test-guarded
 - [x] Findings F-01..F-11 recorded with evidence
 - [x] Self-review pass completed (found F-10 and F-11)
-- [ ] `v0-baseline` tag pushed
-- [ ] Benchmark matrix executed on Docker host
-- [ ] `SUMMARY.md` generated from real results
+- [x] `v0-baseline` tag pushed
+- [x] Benchmark matrix executed on Docker host
+- [x] `SUMMARY.md` generated from real results
 
 **Verdict: harness complete, numbers pending.** Phase 0 is code-complete and
 verified as far as this environment allows. It is not *finished*, because its
 deliverable is a measurement and no measurement exists yet. Phase 1 must not start
 until the matrix has run — otherwise the baseline describes code that no longer
 exists, and the entire before/after comparison is lost.
+
+> **Superseded 2026-09-03.** The matrix has since run. This verdict and the
+> "Not verified here" section above are left unedited per the append-only rule;
+> see *Phase 0 — execution and results* at the end of this file for what actually
+> happened, including where the plan above turned out to be wrong.
 
 ### Guardrails that will catch a bad run
 
@@ -229,3 +234,164 @@ Listed together because they are the reason to trust the eventual numbers:
    summary.
 7. Warm-up output is deleted, not reported.
 8. Every run writes an environment fingerprint alongside the results.
+
+---
+
+## Phase 0 — execution and results
+
+**Ran:** 2026-09-03
+**Benchmarked commit:** `d91234b`, `src/` tree `07d128b0`
+**Artifacts:** `benchmarks/v0-baseline/{SUMMARY.md, failure-attribution.txt, environment.json, pg_stat_statements.txt, explain-users-list.txt}` + 17 raw result JSONs
+
+Appended rather than merged into the section above, because what the run revealed
+was partly that the plan above was wrong about which numbers would be usable.
+
+### What actually ran
+
+Two passes. The first used the planned 100/500/1000 VU levels and produced failure
+rates of 70% and 89%, which triggered the investigation recorded in F-12..F-14. The
+second added 5/10/20/50 after that investigation showed there was no uncensored
+level in the original matrix. Final committed matrix is **7 levels × 2 variants =
+14 closed-model runs**, plus 3 open-model probes. ~75 minutes.
+
+### Measured results
+
+The headline is not the one the plan anticipated. **Capacity is ~6.8 iterations/s on
+one pinned core**, where an iteration is `/health` + sign-in + users-list +
+user-by-id, and the system is at that ceiling by roughly 10 concurrent clients.
+
+| | v0-asbuilt | v0-nolimit |
+|---|---|---|
+| knee (last level with zero abandonment) | **50 VUs** | **100 VUs** |
+| iter/s at the knee | 2.35 | 3.89 |
+| p95 at the knee | 6407 ms | 9103 ms |
+| best uncensored p95 (5 VUs) | 695 ms | **87.68 ms** |
+| `/health` p95 at 5 VUs | 404.69 ms | **4.19 ms** |
+| peak iter/s (and where) | 2.35 @ 50 | **6.76 @ 10** |
+
+Throughput is **flat** across every clean as-built level — 2.11, 2.24, 2.22, 2.35
+iter/s at 5/10/20/50 — while p95 climbs 695 → 1501 → 2791 → 6407 ms. Bypassed, it
+peaks at 10 VUs and then *declines* to 5.42 and 5.14. Flat throughput with linearly
+rising latency is a system already at capacity; declining throughput past the peak
+is contention. So the original 100/500/1000 levels were measuring queue depth, not
+the application.
+
+Per-iteration CPU budget at peak (148 ms of one core), measured rather than
+apportioned: bcrypt compare **54.8 ms**, `JSON.stringify` of the 1001-row users
+response **7.36 ms** (167 KiB per response), all three Postgres queries combined
+**2.33 ms**, Arcjet **~75 ms per request**. The load mix is exactly **25%
+sign-ins**, so one request in four runs the KDF.
+
+Framework overhead is not the constraint and this is the cleanest proof: on the same
+core, in the same process, `GET /api` absorbed **500 req/s at p95 3.33 ms with zero
+dropped iterations** while the real mix managed 27 req/s.
+
+### Findings
+
+| ID | Finding | Evidence | Severity |
+|---|---|---|---|
+| F-12 | The generated report made a high `failed` rate indistinguishable from server errors: the headline table printed `failed 88.75%` beside `5xx 0.00%` and left the status-0 count in a separate table. The first hypothesis it produced was an expired third-party account — both numbers correct, conclusion wrong | reproduced by reading the first `SUMMARY.md`; fixed by the `†` marker, `p95 served`, and a dedicated failure-attribution table | **Reporting — produced a false diagnosis** |
+| F-13 | Latency quantiles past the abandonment point equal the client timeout, not a response time, so `p95 = 60000.64 ms` is not latency. The originally planned 100/500/1000 matrix contained **no uncensored level**, i.e. no quotable baseline existed at all | `http_req_duration` p95/p99 pinned at 60000.xx in every run with abandonment; `http_req_duration{expected_response:true}` diverges sharply | **Measurement validity** |
+| F-14 | Status 0 is two failure modes. k6 `error_code` **1220** (`read: connection reset by peer`) clusters at a 15001 ms median — 6,627 samples spanning only 14995–15014 ms in the 1000-VU as-built run — and **1050** (`request timeout`) at k6's 60 s default. 83.05% of all requests at 1000 VUs as-built ended in 1220, i.e. the server reset them and they never reached the app | `benchmarks/v0-baseline/failure-attribution.txt`; corroborated server-side — k6 sent 11,037 users-list requests, `pg_stat_statements` logged 5,090 | **Capacity** |
+| F-15 | `new Pool()` is constructed with no `max`, so node-postgres defaults to 10 connections while `PG_MAX_CONNECTIONS=200`; `connectionTimeoutMillis` defaults to 0, so a request waits for a slot indefinitely rather than failing fast | `src/config/database.js:11-13` | Correctness — Phase 3 target |
+| F-16 | Arcjet's cost is **CPU, not network**, and it caps throughput rather than only inflating percentiles: ~75 ms per request, 87.39% of p95 at 5 VUs, 45–67% of throughput at every level. Separately, with `ARCJET_KEY` empty it enforced **nothing** — zero 403s across 14 runs while `security.middleware.js:25` configures a `LIVE` 5 req/min window for `guest` | req/s pinned near 9 as-built vs 15–27 bypassed regardless of concurrency, which concurrent I/O waits would not do; `/health` 4.19 ms bypassed vs 404.69 ms as-built | **Performance + security** |
+| F-17 | The open-model probe measures the wrong thing. `saturation.js` hits static `GET /api` and the runner starts those runs with `BENCH_BYPASS_SECURITY=1`, so it reports Express routing throughput, not the capacity of the real mix — which is why it never dropped an iteration even at 500 rps | `benchmarks/k6/saturation.js` default fn; `run-baseline.sh` saturation loop | Measurement scope |
+| F-18 | `--summary-export` wrote 14 files totalling 168 KB that nothing ever consumed — `report.mjs` explicitly filtered them out while `baseline.js`'s own `handleSummary` already wrote the same aggregates plus the `meta` block the report needs | `report.mjs:31` `!f.endsWith('.summary.json')`; no other reference in the repo | Hygiene |
+| F-19 | The `v0-baseline` tag was created two commits *before* the commit that was benchmarked, so `git describe --tags --exact-match` failed and `environment.json` recorded `tag: "unavailable"` — violating this project's own "tag before measuring" rule | tag → `be01992`, run → `d91234b`; `src/` tree identical (`07d128b0`) but the Dockerfile differs by the `/app/logs` mkdir+chown | Process |
+| F-20 | The coverage HTML from F-01 made GitHub classify the repo as **HTML 80.8% / JavaScript 14.8%**, and the classification persisted after removal because Linguist caches per repository | `f2cedf5` added 218,208 B of `lcov-report` HTML, `be01992` removed it; slice arithmetic reproduces the bar from `f2cedf5`'s tree exactly | Presentation |
+
+**F-12 and F-13 are the significant pair, and they are about my own work rather than
+the application.** No measurement was wrong; the presentation of a correct
+measurement produced a false diagnosis, and separately the planned concurrency
+levels were all past the point where latency stops meaning anything. Together they
+say something worth carrying forward: *a benchmark report is a user interface, and a
+number that is technically true but reliably misread is a defect in it.*
+
+**F-16 corrects a reasoning error in the Phase 0 design above.** The "two variants"
+rationale recorded earlier justified the split on the grounds that "a third-party
+network round-trip sits inside every request". The measurement shows the cost is
+serialised CPU, not network wait — which matters because a network round-trip would
+overlap across concurrent requests and leave throughput alone, whereas this one caps
+it. The decision to run both variants was right; the stated reason was wrong.
+
+### Re-measurements, not corrections
+
+Left as separate entries because the file is append-only and the earlier numbers
+were honestly obtained:
+
+- **F-05** recorded `compare=74.7ms` at bcrypt cost 10 and derived a ~13 signin/s
+  ceiling. Re-measured on the benchmark host during this run: **54.8 ms**, so ~18/s.
+  Same order, and the conclusion — that this is the intended security/throughput
+  trade-off and not a defect — is unchanged.
+- The server-side captures were regenerated by the second pass, so the figures
+  moved: the unbounded scan is now 5,090 calls at **2.20 ms** mean (11.2 s total),
+  the lookups 0.07 and 0.06 ms, and `EXPLAIN` execution **0.335 ms**. Anything
+  quoting the first pass's 4.09 ms / 1.06 ms is stale. Note that a re-run
+  **overwrites these files in place** — commit before re-running.
+- Postgres is exonerated either way: ~11.9 s of total database time across runs that
+  were reporting 15–60 second requests, so the unbounded `SELECT` is still the right
+  Phase 3 target but for the Node-side serialisation cost, not the query. An index
+  would achieve nothing here; pagination is what helps.
+
+### Harness changes made in response
+
+None of these touch `src/`, so the baseline remains comparable:
+
+```
+benchmarks/scripts/attribute-failures.mjs   NEW — distils --out json streams to a 4 KB artifact (F-14)
+benchmarks/scripts/report.mjs               † censoring markers, p95 served, failure-attribution
+                                            table, computed Knee section, refuses to diff two
+                                            censored rows (F-12, F-13)
+benchmarks/scripts/run-baseline.sh          --out json per run; --summary-export dropped (F-18);
+                                            VU_LEVELS default now all 7 levels; fingerprint
+                                            records `git rev-parse HEAD:src` (F-19)
+.gitignore                                  *.samples.json.gz; credential patterns; build output
+.gitattributes                              NEW — linguist-vendored/generated, LF enforcement (F-20)
+package.json                                +bench:attribute
+BENCHMARKING.md                             knee/censoring section, corrected run time and levels
+docs/INTERVIEW_PHASE_0.md                   rewritten around the measured results
+```
+
+### Artifact retention decision
+
+Committed: 17 raw result JSONs plus 5 derived artifacts, **168 KB** — exactly what
+`report.mjs` reads, so the tables are regenerable by anyone. Excluded: **9.8 MB** of
+per-request `--out json` streams, distilled first into the 4 KB
+`failure-attribution.txt` so the F-14 evidence survives their deletion. Deleted
+outright: the 14 `--summary-export` duplicates (F-18).
+
+The rule this settles for later phases: commit what a reviewer needs to reproduce
+the claim, distil what is merely large, delete what nothing consumes.
+
+### Revised verdict
+
+**Phase 0 is complete.** A defensible before-number exists at and below the knee,
+the failure mode above it is attributed to an error code rather than guessed at, and
+every figure in `SUMMARY.md` is regenerable from committed raw output by a script.
+
+One question remains open and is recorded rather than papered over: **which
+server-side timer sends the 15 s RST in F-14.** Ruled out — an HTTP 408 (there is no
+HTTP response at all), connection setup (`http_req_connecting` peaks at 10 ms), and
+Arcjet (the cluster is present in the bypassed variant). Leading hypothesis is
+accept-queue overflow on a blocked event loop, since `1+2+4+8 = 15` s is the
+cumulative SYN-ACK retransmission backoff. Settled by one command inside the app
+container under load: `nstat -az | grep -Ei 'ListenOverflow|ListenDrop|TCPAbort'`.
+Phase 6's server-side histograms would have identified it immediately, which is
+itself an argument for pulling some of that work forward.
+
+### Phase 1 entry criteria and priorities
+
+Ordered by measured cost, which is the point — the ordering came from the data, not
+from instinct, and the largest single win is a deletion:
+
+1. **Remove Arcjet** (F-16) — ~75 ms CPU/request, ~3× throughput, and it was
+   enforcing nothing. Replace with a limiter that owns its failure policy explicitly
+   per [ADR 0002](docs/adr/0002-own-the-failure-policy.md), and return 429 with
+   `Retry-After` rather than 403 (F-08).
+2. **Set `max` on the pg pool** (F-15).
+3. **Paginate the users list** — 1001 rows, 167 KiB per response.
+4. **Fix the benchmark mix and the saturation scenario** (F-17) *before* claiming any
+   of the above as an improvement.
+
+Compare against the 5-VU and knee rows only. Any before/after quoted from a censored
+row is not a result (F-13).
