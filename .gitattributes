@@ -1,0 +1,32 @@
+# =============================================================================
+# Line endings
+# =============================================================================
+# Normalise to LF in the repository, and check out LF everywhere. This matters
+# because a shell script with CRLF line endings fails at runtime with an obscure
+# `\r: command not found`, and this repo is meant to be forked — including by
+# people on Windows. All current files are already LF, so this is a no-op today
+# and a guard tomorrow.
+* text=auto eol=lf
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+
+# =============================================================================
+# Language statistics (GitHub Linguist)
+# =============================================================================
+# This is a Node/Express backend. The language bar should say so.
+#
+# Coverage reports are jest output, not source. They were committed once in
+# f2cedf5 (218 KB of lcov-report HTML) and removed in be01992, which is why the
+# bar read "HTML 80.8%" — Linguist had cached the tree from before the removal.
+# Marked vendored so a future accidental commit cannot skew it again.
+coverage/** linguist-vendored
+
+# Raw k6 output. Committed on purpose as the evidence behind every latency claim,
+# but it is machine-written and should be collapsed in diffs rather than reviewed
+# line by line. SUMMARY.md and failure-attribution.txt are deliberately NOT
+# listed here — those are the human-facing artifacts.
+benchmarks/v0-baseline/results/** linguist-generated
+
+# drizzle-kit writes these; they are not hand-authored SQL.
+drizzle/** linguist-generated
