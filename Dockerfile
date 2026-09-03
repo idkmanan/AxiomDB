@@ -16,7 +16,9 @@ RUN apk add --no-cache \
 # Create app directory and non-root user
 WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 -G nodejs
+    adduser -S nodejs -u 1001 -G nodejs && \
+    mkdir -p /app/logs && \
+    chown nodejs:nodejs /app /app/logs
 
 # -----------------------------------------------------------------------------
 # Dependencies Stage: Install production dependencies only
