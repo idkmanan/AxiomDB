@@ -53,20 +53,36 @@ for (const f of files) {
     continue;
   }
   const m = doc.metrics || {};
+  // Latency of the requests that actually got an answer. The blended
+  // http_req_duration includes abandoned requests, whose "duration" is the
+  // client timeout, not a server response time — see the censoring note below.
+  const served = m['http_req_duration{expected_response:true}'];
+  const netfail = num(m.network_failures, 'count') || 0;
   rows.push({
     file: f,
     tag: (doc.meta && doc.meta.run_tag) || 'unknown',
     vus: (doc.meta && doc.meta.vus) || null,
     rps: num(m.http_reqs, 'rate'),
+    reqs: num(m.http_reqs, 'count'),
+    itersRate: num(m.iterations, 'rate'),
     iters: num(m.iterations, 'count'),
     p50: num(m.http_req_duration, 'med'),
     p95: num(m.http_req_duration, 'p(95)'),
     p99: num(m.http_req_duration, 'p(99)'),
     max: num(m.http_req_duration, 'max'),
+    servedP50: num(served, 'med'),
+    servedP95: num(served, 'p(95)'),
+    servedN: num(served, 'count'),
     failed: num(m.http_req_failed, 'rate'),
     e5xx: num(m.server_errors, 'rate'),
+    n4xx: num(m.client_errors, 'passes'),
+    n5xx: num(m.server_errors, 'passes'),
+    n429: num(m.rejected_rate_limited, 'passes'),
     throttled403: num(m.forbidden_403, 'count'),
-    netfail: num(m.network_failures, 'count'),
+    netfail,
+    // A run with abandoned requests has a censored latency distribution: every
+    // quantile at or beyond the abandonment point is the timeout value.
+    censored: netfail > 0,
     signinP95: num(m.lat_signin, 'p(95)'),
     usersListP95: num(m.lat_users_list, 'p(95)'),
     healthP95: num(m.lat_health, 'p(95)'),
@@ -94,9 +110,18 @@ let env = null;
 const envPath = join(DIR, '..', 'environment.json');
 if (existsSync(envPath)) {
   env = JSON.parse(readFileSync(envPath, 'utf8'));
+  // The fingerprint writer substitutes the literal string 'unavailable' when a
+  // git command fails, so a missing tag arrives as truthy text rather than null.
+  // Left unnormalised it renders as "(tag `unavailable`)" and, worse, makes the
+  // Reproduce block emit `git checkout unavailable`.
+  const tag = env.git.tag && env.git.tag !== 'unavailable' ? env.git.tag : null;
+  env.git.tag = tag;
   lines.push('## Environment');
   lines.push('');
   lines.push(`- commit: \`${env.git.commit}\`${env.git.tag ? ` (tag \`${env.git.tag}\`)` : ''}`);
+  if (env.git.src_tree && env.git.src_tree !== 'unavailable') {
+    lines.push(`- src/ tree: \`${env.git.src_tree}\` — comparable across any commit with this hash`);
+  }
   lines.push(`- host: ${env.host.cpu_count} × ${env.host.cpu_model}, ${env.host.total_mem_mb} MB`);
   lines.push(`- node: ${env.tooling.node} · k6: ${env.tooling.k6}`);
   lines.push(`- captured: ${env.captured_at}`);
@@ -108,18 +133,84 @@ if (existsSync(envPath)) {
 
 lines.push('## Closed model — what N concurrent clients experience');
 lines.push('');
-lines.push('| run | VUs | req/s | p50 ms | p95 ms | p99 ms | max ms | failed | 5xx |');
-lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|');
+lines.push('| run | VUs | iter/s | req/s | p50 ms | p95 ms | p99 ms | p95 served ms | failed | 5xx |');
+lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
 for (const r of closed) {
+  const mark = r.censored ? '†' : '';
   lines.push(
-    `| ${r.tag} | ${r.vus ?? '—'} | ${fmt(r.rps)} | ${fmt(r.p50)} | ${fmt(r.p95)} | ${fmt(r.p99)} | ${fmt(r.max)} | ${pct(r.failed)} | ${pct(r.e5xx)} |`
+    `| ${r.tag} | ${r.vus ?? '—'} | ${fmt(r.itersRate)} | ${fmt(r.rps)} | ${fmt(r.p50)}${mark} | ${fmt(r.p95)}${mark} | ${fmt(r.p99)}${mark} | ${fmt(r.servedP95)} | ${pct(r.failed)} | ${pct(r.e5xx)} |`
   );
 }
+lines.push('');
+lines.push('**† = timeout-censored. Do not quote these as latency.** In a row with any');
+lines.push('abandoned request, every quantile at or past the abandonment point equals the');
+lines.push('client timeout rather than a measured server response time, so `p95` there says');
+lines.push('"the client gave up", not "the server took this long". `p95 served` is the p95');
+lines.push('over `http_req_duration{expected_response:true}` — the requests that actually');
+lines.push('got an answer — and is the only latency figure on a censored row that means');
+lines.push('anything. `iter/s` is the honest capacity number: one iteration is one');
+lines.push('/health + one sign-in + one users list + one user-by-id.');
 lines.push('');
 lines.push('The blended p95 above is reported for completeness but is the *least*');
 lines.push('useful number here: it mixes a no-I/O health check with a bcrypt signin');
 lines.push('and an unbounded table scan. Use the per-endpoint table below.');
 lines.push('');
+
+// Failure attribution. Without this split, a high `failed` rate reads as "the
+// server is erroring" when it can equally mean "the client stopped waiting" —
+// two findings with opposite fixes.
+lines.push('## Failure attribution — what "failed" actually was');
+lines.push('');
+lines.push('| run | VUs | requests | answered | abandoned (status 0) | 4xx | 5xx | 429 | 403 |');
+lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|');
+for (const r of closed) {
+  lines.push(
+    `| ${r.tag} | ${r.vus ?? '—'} | ${r.reqs ?? '—'} | ${r.servedN ?? '—'} | ${r.netfail ?? 0} | ${r.n4xx ?? 0} | ${r.n5xx ?? 0} | ${r.n429 ?? 0} | ${r.throttled403 ?? 0} |`
+  );
+}
+lines.push('');
+lines.push('`abandoned` is k6 status 0: no HTTP response was received at all. It is not an');
+lines.push('application error — the app never got the chance to return one. A run whose');
+lines.push('failures are entirely status 0, with 4xx/5xx/429/403 all zero, is a run where');
+lines.push('offered load exceeded capacity and the load generator timed out waiting. The');
+lines.push('fix for that is capacity or a smaller offered load, never error handling.');
+lines.push('');
+lines.push('`failure-attribution.txt` splits status 0 by k6 `error_code`, taken from the');
+lines.push('per-request `--out json` streams: **1220** (`read: connection reset by peer`,');
+lines.push('an RST from the server side, clustered at 15001 ms) and **1050** (`request');
+lines.push('timeout`, k6 giving up at its 60 s default). Regenerate it with');
+lines.push('`node benchmarks/scripts/attribute-failures.mjs`.');
+lines.push('');
+
+// The knee is the largest concurrency level that produced no abandonment. Every
+// before/after claim has to be anchored at or below it, so it is computed here
+// rather than left for a reader to eyeball off the table.
+const knees = new Map();
+for (const r of closed) {
+  if (!r.vus) continue;
+  const variant = r.tag;
+  const prev = knees.get(variant);
+  if (!r.censored && (!prev || r.vus > prev)) knees.set(variant, r.vus);
+}
+if (knees.size) {
+  lines.push('### Knee');
+  lines.push('');
+  for (const [variant, vus] of [...knees.entries()].sort()) {
+    const row = closed.find((r) => r.tag === variant && r.vus === vus);
+    const next = closed
+      .filter((r) => r.tag === variant && r.vus > vus)
+      .sort((a, b) => a.vus - b.vus)[0];
+    lines.push(
+      `- \`${variant}\`: last clean level is **${vus} VUs** — ${fmt(row.itersRate)} iter/s, ` +
+        `p95 ${fmt(row.p95)} ms, zero abandoned` +
+        (next ? `; at ${next.vus} VUs abandonment starts (${pct(next.failed)}).` : '.')
+    );
+  }
+  lines.push('');
+  lines.push('Quote the knee row, not the rows above it. Anything past the knee is partly a');
+  lines.push('measurement of how long the load generator was willing to wait.');
+  lines.push('');
+}
 
 lines.push('## Per-endpoint p95 (ms)');
 lines.push('');
@@ -154,6 +245,15 @@ if (sat.length) {
   lines.push('server slows, closed-model VUs slow with it and the offered load silently');
   lines.push('drops (coordinated omission).');
   lines.push('');
+  lines.push('**Scope caveat — this is not the application\'s capacity.** `saturation.js`');
+  lines.push('hits `GET /api`, which returns a static object with no database access and no');
+  lines.push('bcrypt, and `run-baseline.sh` starts these runs with `BENCH_BYPASS_SECURITY=1`');
+  lines.push('so the middleware is skipped too. What these rows measure is Express routing');
+  lines.push('throughput on the pinned CPU, which is why nothing was ever dropped. The');
+  lines.push('capacity of the real endpoint mix is the `iter/s` column of the closed-model');
+  lines.push('table, an order of magnitude lower. Pointing this scenario at the same mix as');
+  lines.push('`baseline.js` is what would turn it into an actual knee measurement.');
+  lines.push('');
 }
 
 // Variant comparison: quantifies exactly how much of the baseline latency was
@@ -169,17 +269,39 @@ const pairs = [...byVus.entries()].filter(([, v]) => v.asbuilt && v.nolimit);
 if (pairs.length) {
   lines.push('## Attribution: how much of the baseline was Arcjet?');
   lines.push('');
-  lines.push('| VUs | as-built p95 | bypassed p95 | delta ms | share of p95 |');
-  lines.push('|---:|---:|---:|---:|---:|');
+  lines.push('Comparing blended p95 across variants is only valid where neither row is');
+  lines.push('censored: once both runs are pinned at the client timeout, their p95 difference');
+  lines.push('is zero by construction and would understate Arcjet to nothing. Above the knee');
+  lines.push('the cost shows up as lost throughput and extra abandonment instead, so both');
+  lines.push('are reported.');
+  lines.push('');
+  lines.push('| VUs | p95 as-built | p95 bypassed | delta ms | share of p95 | iter/s as-built | iter/s bypassed | throughput lost | failed as-built | failed bypassed |');
+  lines.push('|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
   for (const [vus, v] of pairs) {
-    const d = v.asbuilt.p95 !== null && v.nolimit.p95 !== null ? v.asbuilt.p95 - v.nolimit.p95 : null;
+    const cens = v.asbuilt.censored || v.nolimit.censored;
+    const d = !cens && v.asbuilt.p95 !== null && v.nolimit.p95 !== null ? v.asbuilt.p95 - v.nolimit.p95 : null;
     const share = d !== null && v.asbuilt.p95 ? d / v.asbuilt.p95 : null;
-    lines.push(`| ${vus} | ${fmt(v.asbuilt.p95)} | ${fmt(v.nolimit.p95)} | ${fmt(d)} | ${pct(share)} |`);
+    const lost =
+      v.asbuilt.itersRate !== null && v.nolimit.itersRate
+        ? 1 - v.asbuilt.itersRate / v.nolimit.itersRate
+        : null;
+    lines.push(
+      `| ${vus} | ${fmt(v.asbuilt.p95)}${v.asbuilt.censored ? '†' : ''} | ${fmt(v.nolimit.p95)}${v.nolimit.censored ? '†' : ''} | ${d === null ? 'censored' : fmt(d)} | ${d === null ? 'censored' : pct(share)} | ${fmt(v.asbuilt.itersRate)} | ${fmt(v.nolimit.itersRate)} | ${pct(lost)} | ${pct(v.asbuilt.failed)} | ${pct(v.nolimit.failed)} |`
+    );
   }
   lines.push('');
   lines.push('This is why both variants are run. Attributing the whole baseline p95 to');
   lines.push('application code, when a third-party network hop was inside the request');
   lines.push('path, would overstate every later improvement.');
+  lines.push('');
+  lines.push('Note what the 403 column of the failure table shows: **zero**. The as-built');
+  lines.push('sliding window at `src/middleware/security.middleware.js:25` runs in `LIVE`');
+  lines.push('mode with a limit of 5 requests/minute for `guest`, yet nothing was ever');
+  lines.push('throttled — because `ARCJET_KEY` is empty for the baseline and an errored');
+  lines.push('decision is treated as allow (finding F-07). Arcjet was in the request path');
+  lines.push('costing latency, but it was never enforcing anything. Supplying a working key');
+  lines.push('would not fix these runs, it would end them: at 5 requests/minute per IP,');
+  lines.push('every VU shares one source address and the whole matrix becomes 403s.');
   lines.push('');
 }
 
@@ -191,6 +313,18 @@ lines.push(`git checkout ${env ? env.git.tag || env.git.short : 'v0-baseline'}`)
 lines.push('./benchmarks/scripts/run-baseline.sh');
 lines.push('node benchmarks/scripts/report.mjs');
 lines.push('```');
+lines.push('');
+lines.push('The VU levels are env-overridable, so a quick partial probe needs no code');
+lines.push('change:');
+lines.push('');
+lines.push('```bash');
+lines.push('VU_LEVELS="5 10" ./benchmarks/scripts/run-baseline.sh');
+lines.push('node benchmarks/scripts/report.mjs');
+lines.push('node benchmarks/scripts/attribute-failures.mjs');
+lines.push('```');
+lines.push('');
+lines.push('The default matrix is all seven levels because the report needs both sides of');
+lines.push('the knee, and takes roughly 75 minutes.');
 lines.push('');
 
 const md = lines.join('\n');

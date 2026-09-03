@@ -9,19 +9,45 @@ node_modules/
 !.env.example
 !.env.bench.example
 
+# Credential material that has no business in a repo. Listed explicitly because
+# 4d0ae6e committed a live Neon connection string once already — .gitleaks.toml
+# catches it in CI, but not committing it in the first place is cheaper.
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+*credentials*.json
+*service-account*.json
+
 # ---- generated / local state ----
 coverage/
+.nyc_output/
 logs/
 *.log
 .neon_local/
+*.pid
+
+# ---- build output ----
+# Empty today; the TypeScript migration (ADR 0002) starts emitting these.
+dist/
+build/
+*.tsbuildinfo
 
 # ---- benchmark output ----
 # Raw k6 summaries ARE committed on purpose: they are the evidence behind the
-# latency claims. Only the noisy per-iteration stream is excluded (large, adds nothing).
+# latency claims. What is excluded is the per-request sample stream written by
+# `k6 run --out json=…`, which exists to attribute individual failures locally
+# and is orders of magnitude larger than the aggregate it supports.
 benchmarks/**/raw-stream-*.json
+benchmarks/**/*.samples.json
+benchmarks/**/*.samples.json.gz
+benchmarks/.sampler.log
 
 # ---- editor / OS ----
 .DS_Store
 .idea/
 .vscode/
 *.swp
+*.swo
+*~

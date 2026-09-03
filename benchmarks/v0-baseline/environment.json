@@ -1,9 +1,10 @@
 {
-  "captured_at": "2026-09-02T18:23:37.969Z",
+  "captured_at": "2026-09-03T13:38:27.764Z",
   "git": {
-    "commit": "d38a48b8ddd30cbe364a202a8ce43120a1287e58",
-    "short": "d38a48b",
-    "tag": "unavailable"
+    "commit": "d91234b5e612e27eb158be9230440b7bf964ad3f",
+    "short": "d91234b",
+    "tag": "v0-baseline",
+    "src_tree": "07d128b097669ad305055ebd7db9efc4cf45ff6f"
   },
   "host": {
     "platform": "linux",
@@ -12,9 +13,9 @@
     "cpu_count": 8,
     "total_mem_mb": 7212,
     "load_avg": [
-      0.66,
-      0.82,
-      0.84
+      0.62,
+      0.97,
+      1.58
     ]
   },
   "tooling": {

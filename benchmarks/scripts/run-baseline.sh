@@ -17,7 +17,13 @@ COMPOSE_FILE="docker-compose.bench.yml"
 ENV_FILE=".env.bench"
 RESULTS_DIR="benchmarks/v0-baseline/results"
 BASE_URL="${BASE_URL:-http://localhost:3000}"
-VU_LEVELS="${VU_LEVELS:-100 500 1000}"
+# All seven levels are run because the story needs both sides of the knee: 5-50
+# are uncensored and give a quotable before-number, 100-1000 show what happens
+# past capacity. Reproducing the committed SUMMARY.md needs all of them, so this
+# default matches the committed matrix rather than being a convenient subset.
+# Budget ~75 minutes. Override for a quick probe: VU_LEVELS="5 10" ...
+VU_LEVELS="${VU_LEVELS:-5 10 20 50 100 500 1000}"
+
 SEED_USERS="${SEED_USERS:-1000}"
 # Cool-down between runs. Without it, the previous run's TIME_WAIT sockets and
 # a still-warm Postgres cache leak into the next measurement.
@@ -76,7 +82,16 @@ const { execSync } = require('child_process');
 const sh = (c) => { try { return execSync(c, {stdio:['ignore','pipe','ignore']}).toString().trim(); } catch { return 'unavailable'; } };
 const fp = {
   captured_at: new Date().toISOString(),
-  git: { commit: '$COMMIT', short: '$COMMIT_SHORT', tag: sh('git describe --tags --exact-match 2>/dev/null') || null },
+  git: {
+    commit: '$COMMIT', short: '$COMMIT_SHORT',
+    tag: sh('git describe --tags --exact-match 2>/dev/null') || null,
+    // Tree hash of src/ alone. HEAD moves whenever the harness or the docs
+    // change, which would make two comparable runs look incomparable. What
+    // actually determines app behaviour is the content of src/, so results with
+    // a matching src_tree can be compared even across different commits — and a
+    // differing src_tree invalidates the comparison no matter what HEAD says.
+    src_tree: sh('git rev-parse HEAD:src'),
+  },
   host: {
     platform: process.platform, arch: process.arch,
     cpu_model: (os.cpus()[0]||{}).model || 'unknown',
@@ -177,7 +192,7 @@ k6 run --quiet -e VUS=50 -e DURATION=20s -e RAMP_UP=5s -e RAMP_DOWN=5s \
   -e RUN_TAG=warmup -e BASE_URL="$BASE_URL" \
   -e SEED_USER_COUNT="$SEED_USERS" \
   benchmarks/k6/baseline.js >/dev/null 2>&1 || true
-rm -f "$RESULTS_DIR/warmup-vus50.json" "$RESULTS_DIR/warmup-vus50.summary.json"
+rm -f "$RESULTS_DIR/warmup-vus50.json" "$RESULTS_DIR/warmup-vus50.samples.json.gz"
 grn "warm-up done"
 
 # ---- the matrix ------------------------------------------------------------
@@ -212,12 +227,22 @@ run_one() {
   sleep 8
   curl -fsS "$BASE_URL/health" >/dev/null || { red "app unhealthy before run"; exit 1; }
 
+  # No --summary-export: it writes a near-duplicate of what baseline.js's own
+  # handleSummary() already produces, minus the `meta` block that report.mjs needs
+  # to know which run and VU level a file belongs to. Nothing consumed those files,
+  # so they were 168 KB of committed noise.
+  #
+  # --out json captures PER-REQUEST samples, including the `error_code` field on
+  # failures. The aggregate output cannot distinguish "the server reset the
+  # connection" from "the client stopped waiting" — which is the whole question a
+  # high failure rate raises. Gzipped and gitignored; distil with
+  # `npm run bench:attribute` into a committed artifact before deleting them.
   k6 run \
     -e VUS="$vus" \
     -e RUN_TAG="v0-$variant" \
     -e BASE_URL="$BASE_URL" \
     -e SEED_USER_COUNT="$SEED_USERS" \
-    --summary-export "$RESULTS_DIR/v0-$variant-vus$vus.summary.json" \
+    --out "json=$RESULTS_DIR/v0-$variant-vus$vus.samples.json.gz" \
     benchmarks/k6/baseline.js
 
   grn "recorded $RESULTS_DIR/v0-$variant-vus$vus.json"

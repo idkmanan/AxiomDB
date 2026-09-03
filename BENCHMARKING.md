@@ -14,9 +14,10 @@ How to reproduce every latency number this project claims.
 cp .env.bench.example .env.bench
 npm run bench:baseline
 npm run bench:report
+node benchmarks/scripts/attribute-failures.mjs
 ```
 
-Takes roughly 35 minutes: 6 load runs (3 concurrency levels × 2 variants), 3
+Takes roughly 75 minutes: 14 load runs (7 concurrency levels × 2 variants), 3
 saturation probes, plus warm-up and cool-down periods. Output lands in
 `benchmarks/v0-baseline/`.
 
@@ -26,6 +27,7 @@ Individual steps, if you'd rather drive it manually:
 npm run bench:up            # postgres + app, resource-pinned
 npm run bench:seed          # 1000 users + 1 admin, idempotent
 npm run bench:smoke         # 10 VUs / 20s — verifies the harness works
+npm run bench:attribute     # distil --out json streams into failure-attribution.txt
 npm run bench:down          # tear down, removes the volume
 ```
 
@@ -36,7 +38,7 @@ npm run bench:down          # tear down, removes the volume
 | `benchmarks/k6/baseline.js` | `ramping-vus` (closed) | What do N concurrent clients experience? |
 | `benchmarks/k6/saturation.js` | `constant-arrival-rate` (open) | At what arrival rate does it fall over? |
 
-Concurrency levels: 100, 500, 1000 VUs. Each level runs twice —
+Concurrency levels: 5, 10, 20, 50, 100, 500, 1000 VUs. Each level runs twice —
 `v0-asbuilt` (Arcjet middleware in the request path) and `v0-nolimit` (bypassed).
 Both are committed; see the attribution table in the generated summary for why.
 
@@ -48,6 +50,34 @@ describes no real user.
 Errors are split by cause: 429 (correct throttle), 403 (the as-built throttle
 status, which is wrong — see F-08), 5xx (defects), and status 0 (network failures,
 which are not HTTP errors and must not be counted as 5xx).
+
+## Choosing concurrency levels, and reading a censored run
+
+The matrix spans both sides of the knee on purpose. Measured: `v0-nolimit` is
+clean through 100 VUs and starts abandoning requests at 500; `v0-asbuilt` is clean
+through 50 and starts at 100. Throughput is flat across the clean levels — around
+2.2 iterations/s as-built and 3.9–6.8 bypassed — which is the signature of a
+server already at capacity: extra concurrency buys latency, not work. One
+iteration is `/health` + sign-in + users-list + user-by-id. The hard ceiling is
+bcrypt: cost 10 measures 55ms per compare on this hardware, one compare per
+iteration, one core (`APP_CPUS=1.0`).
+
+Past the knee the consequences show up in two places that are easy to misread:
+
+- **`failed` is abandonment, not errors.** Across the whole matrix there are zero
+  4xx, 5xx, 429 and 403. Nothing in the application failed. `failure-attribution.txt`
+  splits the status-0 failures by k6 `error_code`: **1220** (`read: connection
+  reset by peer`, clustered at 15001 ms — the RST comes from the server side, so
+  the request was never answered) and **1050** (`request timeout`, k6 giving up at
+  60 s). At 1000 VUs as-built, 83% of all requests ended in 1220.
+- **Latency quantiles are censored.** Once requests are being abandoned, every
+  quantile past the abandonment point equals the timeout, not a response time.
+  Rows in that state are flagged `†` and must not be quoted as latency. Use
+  `p95 served`, computed over `http_req_duration{expected_response:true}`.
+
+Quote the knee row. A level above it partly measures how long k6 was willing to
+wait, and it will happily show an "improvement" that is really just a shift in
+where the queue overflows.
 
 ## Requirements
 
@@ -95,6 +125,20 @@ Stated rather than hidden:
 - v0 has only client-side timings. Server-side histograms arrive in Phase 6 and
   will separate queue time from service time.
 - No p99.9 — too few samples at these volumes for it to mean anything.
+- `saturation.js` hits `GET /api`, a static response, and the runner starts those
+  probes with `BENCH_BYPASS_SECURITY=1`. So the open-model rows measure Express
+  routing throughput on the pinned CPU, not the capacity of the real endpoint mix,
+  which is why they never drop an iteration even at 500 rps. Treat that section as
+  a floor for framework overhead, not as the knee.
+- In the v0 runs the abandoned requests split into an RST from the server at
+  15001 ms (k6 `error_code` 1220) and k6's own 60 s timeout (1050) — see
+  `failure-attribution.txt`. Connection setup is ruled out (`http_req_connecting`
+  peaks at 10 ms) and so is Arcjet (the 15 s cluster is present in the bypassed
+  variant). The remaining question is which server-side timer sends that RST;
+  `1+2+4+8 = 15` s is the cumulative SYN-ACK retransmission backoff, so an
+  overflowing accept queue on a blocked event loop is the leading candidate.
+  Confirm or kill it in one run with, inside the app container during load:
+  `nstat -az | grep -Ei 'ListenOverflow|ListenDrop|TCPAbort'`.
 
 ## Adding a phase
 
