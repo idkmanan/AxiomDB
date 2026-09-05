@@ -304,6 +304,10 @@ assert_clean_run() {
     const r429 = val('rejected_rate_limited', 'rate');
     const c403 = val('forbidden_403', 'count');
     const r5xx = val('server_errors', 'rate');
+    const n5xx = val('server_errors', 'passes');
+    const n503 = val('shed_503', 'count');
+    const netfail = val('network_failures', 'count');
+
     if (r429 > 0 || c403 > 0) {
       console.error('REJECTED RUN: the rate limiter fired during measurement');
       console.error('  429 rate: ' + (r429 * 100).toFixed(2) + '%   403 count: ' + c403);
@@ -311,8 +315,21 @@ assert_clean_run() {
       console.error('  Raise RATE_LIMIT_* in .env.bench and re-run.');
       process.exit(1);
     }
-    if (r5xx > 0) {
-      console.error('WARNING: 5xx rate ' + (r5xx * 100).toFixed(2) + '% — a real defect, not capacity.');
+
+    // 5xx is two different things and the distinction is the whole point of
+    // finding F-33. A 503 is the pool shedding load once connectionTimeoutMillis
+    // fires — the system protecting itself, expected past the knee. Anything else
+    // in the 5xx class is application code breaking.
+    const nonShed = Math.max(0, n5xx - n503);
+    if (nonShed > 0) {
+      console.error('DEFECT: ' + nonShed + ' non-503 5xx response(s) — application error, not capacity.');
+      console.error('  5xx rate ' + (r5xx * 100).toFixed(2) + '% of which ' + n503 + ' were 503 (shed).');
+      console.error('  Investigate before quoting this run.');
+      process.exit(1);
+    }
+    if (n503 > 0) {
+      const censored = netfail > 0 ? ' (row is also censored: ' + netfail + ' abandoned)' : '';
+      console.error('  note: ' + n503 + ' request(s) shed with 503 — saturation, expected past the knee' + censored);
     }
   "
 }
@@ -320,10 +337,40 @@ assert_clean_run() {
 run_closed() {
   local script="$1" tag="$2" vus="$3"
   info "run: $tag vus=$vus ($script)"
-  curl -fsS "$BASE_URL/health" >/dev/null || {
-    red "app unhealthy before run"
+
+  # RESTART THE APP BEFORE EVERY RUN — finding F-34, and a regression I introduced.
+  #
+  # Phase 0's runner recreated the app container before each run, because that was
+  # how it flipped BENCH_BYPASS_SECURITY. The restart was doing two jobs: setting the
+  # flag, and giving every run a clean process. Removing the flag removed the
+  # restart with it, and the second job went unnoticed.
+  #
+  # The consequence showed up in the first v1 matrix. After the 500-VU level, 752
+  # requests had been abandoned by the client while the server was still processing
+  # them, holding pool connections; 45 seconds of cool-down did not drain them. The
+  # 1000-VU level then failed in `setup()` with a 500 on admin sign-in, and the
+  # matrix aborted. A benchmark whose levels are not independent measures the
+  # previous level.
+  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+    up -d --no-deps --force-recreate app
+
+  local ready=0
+  for _ in $(seq 1 60); do
+    if curl -fsS "$BASE_URL/health" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ready" != "1" ]; then
+    red "app did not come back healthy after restart"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --tail 40 app
     exit 1
-  }
+  fi
+  # Settle: the pool is cold and the JIT has not warmed on the new process. The
+  # discarded warm-up run at the top of the matrix does not help a container that
+  # has just been replaced.
+  sleep 5
 
   # --out json captures PER-REQUEST samples including `error_code` on failures. The
   # aggregate output cannot distinguish "the server reset the connection" from "the
@@ -367,10 +414,14 @@ fi
 # dropped_iterations finally means what BENCHMARKING.md says it means.
 info "open model saturation probe (realistic mix)"
 for rate in $SAT_RATES; do
-  curl -fsS "$BASE_URL/health" >/dev/null || {
-    red "app unhealthy before probe"
-    exit 1
-  }
+  # Same restart discipline as the closed-model runs (F-34).
+  docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" \
+    up -d --no-deps --force-recreate app
+  for _ in $(seq 1 60); do
+    curl -fsS "$BASE_URL/health" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  sleep 5
   k6 run -e RATE="$rate" -e DURATION=45s -e RUN_TAG="$PHASE-saturation" \
     -e BASE_URL="$BASE_URL" -e RESULTS_DIR="$RESULTS_DIR" \
     -e SEED_USER_COUNT="$SEED_USERS" \

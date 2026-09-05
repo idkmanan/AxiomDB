@@ -675,7 +675,106 @@ a false diagnosis.
 
 ---
 
-## 14. "What's still broken?"
+## 14. "You pushed it and CI went red. What broke?"
+
+Worth having ready, because "my tests passed locally" is the least convincing sentence
+in software and this is a chance to say something better. Two checks failed — lint and
+Docker build passed — and the interesting one is the test failure.
+
+**The suite required a database to *import*, not to run.** Both drivers were
+constructed at module scope, and `@neondatabase/serverless` throws when handed
+`undefined`:
+
+```
+No database connection string was provided to `neon()`.
+Perhaps an environment variable has not been set?
+```
+
+I had removed `DATABASE_URL: ${{ secrets.DATABASE_URL }}` from the Tests workflow, on
+the correct grounds that the suite never talks to a database. That reasoning was right
+about the *queries* and wrong about the *imports*.
+
+Why it passed locally is the part worth dwelling on, because it was two compounding
+things rather than carelessness:
+
+1. A gitignored `.env` on my machine supplied `DATABASE_URL`. CI has no `.env`.
+2. `src/config/database.js` itself called `import 'dotenv/config'`. So even a test that
+   deliberately deleted `process.env.DATABASE_URL` had it put straight back — the
+   suite could not be made hermetic on purpose.
+
+> The reason my verification passed was that my environment differed from CI's in a
+> way I had not enumerated. That is a stronger statement than "I should run CI
+> locally", because the second one would not have helped: I would have run it with my
+> `.env` in place.
+
+Both are fixed. `dotenv` now loads only at the entrypoint, where config loading
+belongs — a library module that populates the environment makes import order decide
+configuration. And a missing `DATABASE_URL` no longer throws at import: `db` becomes a
+Proxy that throws *at the point of use*, naming the variable, so a unit test that
+never queries imports cleanly and one that does gets an actionable message.
+`tests/database-config.test.js` runs the import with the variable explicitly deleted
+and asserts the whole app still serves `/health`, `/api` and a 404 with no database
+anywhere.
+
+The second failure was a secret scan, and the fix there was one I should have made in
+the first pass: Phase 1 made a missing `JWT_SECRET` throw in production but left the
+hardcoded development literal in place. A credential-shaped constant in a repository
+meant to be forked is worth removing on its own merits, so the development fallback is
+now generated per process — nothing secret-shaped is committed, and sessions no longer
+survive a restart unless you set the variable, which the startup warning says.
+
+---
+
+## 15. "Your first benchmark run aborted. What happened?"
+
+Two separate defects, and neither was in the application's hot path.
+
+**The 500-VU row reported a 6.74% 5xx rate, and the runner's own assertion flagged it
+as "a real defect, not capacity".** The assertion was right and the defect was in my
+classifier. Look at where the latencies landed:
+
+```
+GET /api/users        p95 5086.88 ms
+GET /api/users/:id    p95 5004.85 ms
+```
+
+Both pinned at 5000 ms, which is exactly `connectionTimeoutMillis`. That is pool
+exhaustion — the pool refusing to queue a request indefinitely, precisely as
+configured. `src/config/env.js` even said so in a comment: *"a 503 in 5s is a usable
+signal; a request that never returns is not."* I set the timeout and never mapped its
+error, and node-postgres attaches no `code` to it — `pg-pool/index.js:224` constructs a
+bare `new Error('timeout exceeded when trying to connect')` — so `classify()` fell
+through to 500.
+
+So correct load shedding was indistinguishable from an application bug. Now it is 503
+with `kind: 'saturation'`, matched on the message with a test that fails if pg rewords
+it, and a new `shed_503` counter in the k6 metrics splits it from 500 so the runner
+**fails** on any non-503 5xx and merely notes 503s as expected past the knee.
+
+**The 1000-VU level aborted in `setup()` with a 500 on admin sign-in, and that was a
+harness regression.** Phase 0 recreated the app container before every single run —
+because that was how it flipped `BENCH_BYPASS_SECURITY`. The restart was doing two
+jobs: setting the flag, and giving each run a clean process. I removed the flag and
+removed the isolation with it without noticing the second job existed.
+
+The consequence is the kind that invalidates results rather than failing loudly: after
+the 500-VU level, 752 requests had been abandoned by the client while the server was
+still processing them, holding pool connections. Forty-five seconds of cool-down did
+not drain them, so the next level started against a saturated pool. It happened to
+fail visibly; it could just as easily have produced plausible numbers that were
+partly a measurement of the previous level.
+
+> A benchmark whose levels are not independent measures the previous level.
+
+The fix restores the restart plus a health gate and a settle period. The generalisable
+version, and the third time this project has hit it: **when you delete a mechanism,
+enumerate what else was depending on it.** F-17 was a saturation probe that measured
+the wrong thing; this was a restart that was load-bearing for a reason not stated
+anywhere.
+
+---
+
+## 16. "What's still broken?"
 
 Volunteer this list. Everything on it is deliberate, and each item names the phase
 that closes it:
@@ -694,8 +793,14 @@ that closes it:
 
 ---
 
-## 15. "What would you do differently?"
+## 17. "What would you do differently?"
 
+- **My local environment was not the environment I claimed to have verified in.** A
+  gitignored `.env` plus a library module that loaded dotenv meant the test suite could
+  not be made hermetic even deliberately, and CI found it within 21 seconds of the
+  push (F-32). The correction is structural rather than a resolution to be more
+  careful: dotenv loads at the entrypoint only, and a missing `DATABASE_URL` is now a
+  tested condition.
 - **The Phase 1 scope conflict should have been settled in Phase 0.** `UPGRADE_PLAN.md`
   assigned pool sizing and pagination to Phase 3; the measurements put them ahead of
   most of the correctness work. Resolving that at the start of Phase 1 rather than

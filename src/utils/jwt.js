@@ -29,8 +29,9 @@ import config from '#config/env.js';
 
 if (config.session.usingInsecureDevSecret) {
   logger.warn(
-    'JWT_SECRET is not set — using a known development secret. Tokens signed now ' +
-      'are forgeable by anyone with this repository. Set JWT_SECRET (openssl rand -base64 32).'
+    'JWT_SECRET is not set — using a random secret generated for this process. ' +
+      'Every restart invalidates all sessions. Set JWT_SECRET for stable local ' +
+      'sessions (openssl rand -base64 32).'
   );
 }
 

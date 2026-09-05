@@ -22,6 +22,8 @@
 // depends on a value being remembered in two places.
 // ---------------------------------------------------------------------------
 
+import { randomBytes } from 'node:crypto';
+
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PRODUCTION = NODE_ENV === 'production';
 const IS_TEST = NODE_ENV === 'test';
@@ -62,9 +64,20 @@ const SESSION_TTL_MS = intFromEnv('SESSION_TTL_MS', 15 * 60 * 1000, {
 });
 
 // ---------------------------------------------------------------------------
-// JWT secret — no usable fallback in production.
+// JWT secret — no usable fallback, and no literal in the repository.
 // ---------------------------------------------------------------------------
-const DEV_JWT_SECRET = 'dev-only-insecure-secret-do-not-use-outside-development';
+// v0 fell back to a hardcoded string (F-25). Phase 1's first fix was to throw in
+// production, but the literal itself stayed, which left two problems: a committed
+// credential-shaped constant that a secret scanner is right to object to, and a
+// value a forker could accidentally rely on.
+//
+// So the development fallback is now GENERATED per process. Consequences, both
+// intended: nothing secret-shaped is committed, and a developer who wants sessions
+// to survive a restart has to set JWT_SECRET — which the warning below tells them,
+// and which `.env.development` already does.
+function generateEphemeralSecret() {
+  return randomBytes(32).toString('base64');
+}
 
 function resolveJwtSecret() {
   const secret = process.env.JWT_SECRET;
@@ -77,11 +90,11 @@ function resolveJwtSecret() {
     );
   }
   if (secret) {
-    // Present but too short. Allowed outside production so tests and local runs
-    // are not blocked, but it must not pass silently.
+    // Present but too short. Allowed outside production so tests and local runs are
+    // not blocked, but it must not pass silently.
     return secret;
   }
-  return DEV_JWT_SECRET;
+  return generateEphemeralSecret();
 }
 
 // ---------------------------------------------------------------------------

@@ -32,7 +32,15 @@
 // does add is a loud warning, which v0 did not have: the driver switch was
 // silent, and F-06 exists because of it.
 // ---------------------------------------------------------------------------
-import 'dotenv/config';
+// NOTE: no `import 'dotenv/config'` here, and its removal is part of F-32.
+//
+// v0 loaded dotenv from inside this module. That makes a library module responsible
+// for populating the environment, so import ORDER decides configuration and a test
+// cannot control what the module sees — deleting `process.env.DATABASE_URL` in a test
+// had no effect, because importing this file put it straight back from a gitignored
+// `.env`. That is precisely the mechanism that hid the CI failure. The entrypoint
+// (`src/index.js`) loads dotenv before anything else, and `drizzle.config.js` loads
+// its own; modules below the entrypoint just read `process.env`.
 import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
 import config from '#config/env.js';
@@ -42,12 +50,59 @@ let db;
 /** @type {import('pg').Pool | null} */
 let pool = null;
 
-if (config.nodeEnv === 'development') {
+const DATABASE_URL = process.env.DATABASE_URL;
+
+/**
+ * Stand-in for `db` when no DATABASE_URL is configured.
+ *
+ * FINDING F-32. Both drivers used to be constructed unconditionally at import
+ * time, and `neon()` throws when handed `undefined`:
+ *
+ *   No database connection string was provided to `neon()`.
+ *   Perhaps an environment variable has not been set?
+ *
+ * So importing ANY module that reaches `#config/database.js` — which is most of
+ * `src/` — required a database URL even for a test that never issues a query. That
+ * broke CI the moment `DATABASE_URL` was removed from the Tests workflow on the
+ * (correct) grounds that the suite does not talk to a database. It passed locally
+ * only because a gitignored `.env` was supplying the variable, which is the whole
+ * lesson: **a local environment that differs from CI is a test that has not run.**
+ *
+ * A proxy rather than a `null`: the failure now happens at the point of USE, names
+ * the missing variable, and is impossible to mistake for a query error.
+ */
+function unconfiguredDb() {
+  const fail = () => {
+    throw new Error(
+      'DATABASE_URL is not set, so no database driver was constructed. Set it, or ' +
+        'mock #config/database.js in tests that need query behaviour.'
+    );
+  };
+  return new Proxy(
+    {},
+    {
+      get: fail,
+      apply: fail,
+    }
+  );
+}
+
+if (!DATABASE_URL) {
+  // Production must not reach this quietly — a service that starts without a
+  // database and reports itself live is worse than one that refuses to start.
+  if (config.isProduction) {
+    throw new Error('DATABASE_URL is required in production.');
+  }
+  db = unconfiguredDb();
+  if (!config.isTest) {
+    logger.warn('DATABASE_URL is not set — database access will throw on first use.');
+  }
+} else if (config.nodeEnv === 'development') {
   const { Pool } = await import('pg');
   const { drizzle: drizzlePg } = await import('drizzle-orm/node-postgres');
 
   pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: DATABASE_URL,
     max: config.pool.max,
     connectionTimeoutMillis: config.pool.connectionTimeoutMillis,
     idleTimeoutMillis: config.pool.idleTimeoutMillis,
@@ -72,7 +127,7 @@ if (config.nodeEnv === 'development') {
     idleTimeoutMillis: config.pool.idleTimeoutMillis,
   });
 } else {
-  const sql = neon(process.env.DATABASE_URL);
+  const sql = neon(DATABASE_URL);
   db = drizzle(sql);
   if (!config.isTest) {
     logger.warn(

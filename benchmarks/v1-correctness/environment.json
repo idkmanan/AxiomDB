@@ -1,0 +1,24 @@
+{
+  "phase": "v1",
+  "captured_at": "2026-09-05T07:07:46.600Z",
+  "git": {
+    "commit": "6e8b8cf206f833f322247c355d3a1f958c2f2786",
+    "short": "6e8b8cf",
+    "tag": "v1-correctness",
+    "src_tree": "e661e545eeb974c123bd666e32f7d0a16ba1952d"
+  },
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu_model": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+    "cpu_count": 8,
+    "total_mem_mb": 7212,
+    "load_avg": [0.91, 0.52, 0.45]
+  },
+  "tooling": {
+    "node": "v22.22.1",
+    "k6": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "docker": "Docker version 29.6.2, build dfc4efb"
+  },
+  "limits_note": "container cpu/memory limits are pinned in .env.bench — see APP_CPUS / PG_CPUS"
+}

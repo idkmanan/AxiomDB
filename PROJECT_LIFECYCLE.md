@@ -15,7 +15,7 @@ commit messages and docs. Every finding cites a file and line or a command outpu
 | Phase | Status | Started | Completed | Deliverable |
 |---|---|---|---|---|
 | 0 — Baseline measurement | **Complete** — matrix executed, results committed, findings F-01..F-20 recorded | 2026-09-01 | 2026-09-03 | Reproducible benchmark harness + v0 numbers |
-| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-31 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
+| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-35 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
 | 2 — TypeScript migration | Not started | — | — | Strict-typed source |
 | 3 — Postgres foundation | Not started — **rescoped**, see the Phase 1 section | — | — | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
 | 4 — Redis: limits & tokens | Not started | — | — | Distributed rate limiting, refresh rotation |
@@ -465,6 +465,45 @@ cheapest correction is to exercise the running thing.
 It also pairs with F-28: every defect I introduced in this phase was in the
 observability layer, where being wrong is silent by construction.
 
+### Post-push corrections, 2026-09-04
+
+Phase 1 was pushed to `main` and two of the four checks failed, and the first v1
+matrix aborted at the 1000-VU level. Four further findings, all mine, all in work
+this phase added.
+
+| ID | Finding | Evidence | Severity |
+|---|---|---|---|
+| F-32 | The whole test suite required `DATABASE_URL` to **import**, even though no test issues a query. Both drivers were constructed at module scope and `neon()` throws on `undefined`. Removing the `DATABASE_URL` secret from `tests.yml` — correct on the merits, since the suite has no database — therefore broke CI. It passed locally only because a gitignored `.env` supplied the variable, and because `database.js` itself called `import 'dotenv/config'`, so deleting the variable in a test put it straight back | CI: `No database connection string was provided to \`neon()\``; reproduced locally with `env -u DATABASE_URL … DOTENV_CONFIG_PATH=/nonexistent` | **CI red on main** |
+| F-33 | Pool exhaustion surfaced as **500**. `connectionTimeoutMillis` was set — the fail-fast half — but nothing mapped the resulting error, and node-postgres attaches no `code` to it (`pg-pool/index.js:224` constructs a bare `new Error('timeout exceeded when trying to connect')`). So `classify()` fell through to 500 and correct load shedding was indistinguishable from an application bug. `src/config/env.js` had already asserted the intended behaviour in a comment — "a 503 in 5s is a usable signal" — and it was never implemented | v1 500-VU run: `5xx rate 0.07`, users-list p95 **5086 ms** and user-by-id p95 **5004 ms**, both pinned at the 5000 ms `connectionTimeoutMillis` | **Correctness — a 500 that was not a defect** |
+| F-34 | The runner stopped restarting the app between runs, so levels were no longer independent. Phase 0 recreated the container before every run because that was how it flipped `BENCH_BYPASS_SECURITY`; the restart was doing two jobs and removing the flag removed the isolation with it. After the 500-VU level, 752 abandoned requests were still being processed server-side holding pool connections, 45 s of cool-down did not drain them, and the 1000-VU `setup()` got a 500 on admin sign-in and aborted the matrix | `git show v0-baseline:benchmarks/scripts/run-baseline.sh \| grep force-recreate` → lines 214, 262; absent from `run_closed` | **Measurement validity** |
+| F-35 | `package-lock.json` still declared `@arcjet/inspect`, `@arcjet/node` and `morgan` as root dependencies after they were removed from `package.json`, so `npm ci` kept installing 20 packages the code no longer imports | `node -e` diff of lock root deps vs `package.json` → 3 extra, 17 arcjet + 3 morgan tree entries | Hygiene |
+
+**F-32 is the one worth carrying forward**, and its lesson is narrower and sharper
+than "test in CI": *the reason my verification passed was that my environment
+differed from CI's in a way I had not enumerated.* A gitignored `.env` plus a library
+module that loads dotenv meant the suite could not be made hermetic even
+deliberately. Both are fixed — `dotenv` now loads only at the entrypoint, and a
+missing `DATABASE_URL` yields a Proxy that throws at the point of use naming the
+variable, so the suite imports cleanly with no database anywhere and
+`tests/database-config.test.js` runs the import with the variable explicitly deleted.
+
+**F-33 is the more interesting engineering point.** The runner's own assertion caught
+it and reported "5xx rate 6.74% — a real defect, not capacity". That was right, and
+the defect was in the classifier rather than the pool. Load shedding is now 503 with
+`kind: 'saturation'`, and a new `shed_503` counter in the k6 metrics splits it from
+500 — so `assert_clean_run` now **fails** on any non-503 5xx and merely notes 503s as
+expected saturation past the knee. Adding that counter is additive observation over
+the same responses: it changes no request, no load shape and no threshold, so it does
+not break the freeze on `baseline.js`, which governs the stimulus rather than the
+instrumentation.
+
+Also corrected while auditing this: the hardcoded development JWT secret is gone.
+Phase 1's first fix made production throw, but the literal stayed — a
+credential-shaped constant in the repository that a forker could come to rely on. The
+development fallback is now generated per process, so sessions do not survive a
+restart unless `JWT_SECRET` is set, which the startup warning says.
+
+
 **F-29 and F-30 are the same defect in two directions**, and they were found while
 rewriting the README against the code rather than against the previous README — which
 is the only reason they surfaced at all. One setting looked enforced and was not; the
@@ -679,7 +718,7 @@ for `tag: "unavailable"`.
 - [x] CI lint and format blocking; 37 pre-existing errors cleared
 - [x] Docker image name corrected
 - [x] Harness: frozen instrument preserved, realistic mix added, saturation fixed (F-17)
-- [x] Findings F-21..F-31 recorded with evidence
+- [x] Findings F-21..F-35 recorded with evidence
 - [x] `docs/INTERVIEW_PHASE_1.md` written
 - [ ] `v1-correctness` tag pushed
 - [ ] v1 matrix executed on the Docker host

@@ -31,6 +31,20 @@ export const rate5xx = new Rate('server_errors');
 export const count403 = new Counter('forbidden_403');
 export const countNetworkFail = new Counter('network_failures');
 
+// 503 specifically, added in Phase 1 and NOT the same thing as a 500.
+//
+// Once `connectionTimeoutMillis` is set, pool exhaustion produces a fast failure
+// rather than an unbounded wait — that is the system shedding load, and the correct
+// status for it is 503 (finding F-33). A 500 means application code broke. Both are
+// 5xx, so `server_errors` alone cannot tell them apart, and the difference is
+// exactly the one you need at high concurrency: "saturated, shedding correctly"
+// versus "there is a bug".
+//
+// This is additive OBSERVATION over the same responses. It changes no request, no
+// load shape and no threshold, so it does not break the freeze on baseline.js —
+// which is about the stimulus, not the instrumentation.
+export const count503 = new Counter('shed_503');
+
 // Records one response against the right metrics.
 export function record(res, latencyTrend) {
   if (latencyTrend) latencyTrend.add(res.timings.duration);
@@ -51,8 +65,10 @@ export function record(res, latencyTrend) {
   rate4xx.add(s >= 400 && s < 500);
   rate5xx.add(s >= 500);
 
-  // The as-built app returns 403 for rate-limit rejections
-  // (src/middleware/security.middleware.js:41) instead of the correct 429.
-  // Counted separately so the Phase 4 fix is visibly reflected in the metrics.
+  // v0 returned 403 for rate-limit rejections (src/middleware/security.middleware.js:41)
+  // instead of the correct 429. Kept so a regression to the old status is visible.
   if (s === 403) count403.add(1);
+
+  // Load shedding, not a defect. See the note on count503 above.
+  if (s === 503) count503.add(1);
 }

@@ -63,6 +63,25 @@ describe('classify', () => {
     expect(classify(Object.assign(new Error('down'), { code: 'ECONNREFUSED' })).status).toBe(503);
   });
 
+  it('maps pool exhaustion to 503, not 500 (F-33)', () => {
+    // node-postgres attaches NO code to this: pg-pool/index.js:224 constructs a bare
+    // `new Error('timeout exceeded when trying to connect')`. So it has to be matched
+    // on the message, and this test is what keeps that honest — if pg rewords it, this
+    // fails instead of silently reverting pool exhaustion to a 500.
+    const poolTimeout = new Error('timeout exceeded when trying to connect');
+    expect(classify(poolTimeout)).toMatchObject({ status: 503, kind: 'saturation' });
+
+    // The v1 500-VU run reported a 6.74% 5xx rate that was entirely this: the pool
+    // shedding load exactly as `connectionTimeoutMillis` was configured to make it.
+    // Reporting that as 500 makes correct load shedding indistinguishable from a bug.
+    expect(classify(poolTimeout).status).not.toBe(500);
+  });
+
+  it('maps a request arriving during shutdown to 503', () => {
+    const afterEnd = new Error('Cannot use a pool after calling end on the pool');
+    expect(classify(afterEnd)).toMatchObject({ status: 503, kind: 'shutdown' });
+  });
+
   it('falls back to 500 for anything unrecognised', () => {
     expect(classify(new Error('who knows'))).toMatchObject({ status: 500, kind: 'unknown' });
     expect(classify(undefined).status).toBe(500);

@@ -77,6 +77,37 @@ export function classify(err) {
     return { status: 503, message: 'A downstream dependency is unavailable', kind: 'dependency' };
   }
 
+  // POOL EXHAUSTION — finding F-33, and matched on the MESSAGE because
+  // node-postgres attaches no code to it (pg-pool/index.js:224 constructs a bare
+  // `new Error('timeout exceeded when trying to connect')`).
+  //
+  // This is the branch src/config/env.js already claimed existed: "Fail fast
+  // instead of queueing indefinitely. A 503 in 5s is a usable signal; a request
+  // that never returns is not." Setting `connectionTimeoutMillis` delivered the
+  // fail-fast half and nothing mapped the result, so pool exhaustion surfaced as a
+  // 500 — indistinguishable from a bug in application code. The v1 500-VU run
+  // reported a 6.74% 5xx rate for exactly this reason, and the runner's own
+  // assertion flagged it as "a real defect, not capacity". It was right: not a
+  // defect in the pool, a defect in the classifier.
+  //
+  // 503 is correct because the request was valid and a retry may succeed. Matching
+  // on a dependency's error string is fragile, so it is last, narrow, and paired
+  // with a test that fails if the pool changes the wording.
+  if (typeof err?.message === 'string') {
+    if (err.message.includes('timeout exceeded when trying to connect')) {
+      return {
+        status: 503,
+        message: 'Server is at capacity; retry shortly',
+        kind: 'saturation',
+      };
+    }
+    // Raised by pg-pool once `end()` has been called — i.e. a request that arrived
+    // during the shutdown drain. Also a retry-elsewhere condition, not a bug.
+    if (err.message.includes('Cannot use a pool after calling end on the pool')) {
+      return { status: 503, message: 'Server is shutting down', kind: 'shutdown' };
+    }
+  }
+
   return { status: 500, message: 'Internal Server Error', kind: 'unknown' };
 }
 
