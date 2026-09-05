@@ -9,7 +9,13 @@
 // wrapper a message of "Failed query: …" and no code.
 // ---------------------------------------------------------------------------
 import { classify } from '#middleware/error.middleware.js';
-import { causeChain, pgCodeOf, systemCodeOf, chainMessageIncludes } from '#utils/db-error.js';
+import {
+  causeChain,
+  pgCodeOf,
+  systemCodeOf,
+  chainMessageIncludes,
+  RETRYABLE_DRIVER_MESSAGES,
+} from '#utils/db-error.js';
 
 /**
  * The real shape, copied from node_modules/drizzle-orm/errors.js:10.
@@ -66,6 +72,34 @@ describe('cause-chain helpers', () => {
   });
 });
 
+describe('the matched driver strings still exist in the installed pg (F-37)', () => {
+  // Matching a dependency's error text is fragile. This is what makes it a checked
+  // contract instead of a hope: every needle in the table must still appear in the
+  // source it was taken from, so a pg upgrade that rewords one FAILS HERE rather
+  // than silently turning load shedding back into a 500 — which is precisely how
+  // F-33 and F-37 stayed hidden until a benchmark tripped over them.
+  const sources = {};
+
+  beforeAll(async () => {
+    const { readFileSync } = await import('node:fs');
+    sources['pg-pool'] = readFileSync('node_modules/pg-pool/index.js', 'utf8');
+    sources['pg'] = readFileSync('node_modules/pg/lib/client.js', 'utf8');
+  });
+
+  it('covers both connectionTimeoutMillis paths, which is the whole point', () => {
+    const needles = RETRYABLE_DRIVER_MESSAGES.map((e) => e.needle);
+    expect(needles).toContain('timeout exceeded when trying to connect');
+    expect(needles).toContain('Connection terminated due to connection timeout');
+  });
+
+  it.each(RETRYABLE_DRIVER_MESSAGES.map((e) => [e.source, e.needle]))(
+    '%s still emits "%s"',
+    (source, needle) => {
+      expect(sources[source]).toContain(needle);
+    }
+  );
+});
+
 describe('classify sees through the drizzle wrapper', () => {
   it('maps a wrapped unique violation to 409', () => {
     // The signup race. Before F-36 this returned 500 in the real path while the
@@ -75,10 +109,35 @@ describe('classify sees through the drizzle wrapper', () => {
   });
 
   it('maps wrapped pool exhaustion to 503, not 500', () => {
-    // This is what the v1 20-VU run actually hit: 8 non-503 5xx responses, 0 shed.
+    // Path 1: the pool is at `max` and this request waited in the queue past
+    // connectionTimeoutMillis (pg-pool/index.js:224).
     const wrapped = drizzleWrap(new Error('timeout exceeded when trying to connect'));
     expect(classify(wrapped)).toMatchObject({ status: 503, kind: 'saturation' });
     expect(classify(wrapped).status).not.toBe(500);
+  });
+
+  it('maps the OTHER connection-timeout error to 503 as well (F-37)', () => {
+    // Path 2, and the one that produced 6 × 500 in the v1 20-VU run. The pool was
+    // BELOW max, opened a new client, and that client's connect() did not finish in
+    // time — so pg-pool/index.js:276 raises a different message for the same
+    // configured condition, itself wrapping the underlying error.
+    //
+    // Reproduced with the real nesting: drizzle -> pg-pool -> connect error.
+    const inner = new Error('timeout expired');
+    const poolErr = new Error('Connection terminated due to connection timeout', { cause: inner });
+    const wrapped = drizzleWrap(poolErr);
+
+    expect(classify(wrapped)).toMatchObject({ status: 503, kind: 'saturation' });
+    // Nothing distinguishes the two paths operationally, so they must not produce
+    // different statuses — which is exactly the bug this replaces.
+    expect(classify(wrapped).status).toBe(
+      classify(drizzleWrap(new Error('timeout exceeded when trying to connect'))).status
+    );
+  });
+
+  it('maps a lost connection mid-query to 503', () => {
+    const wrapped = drizzleWrap(new Error('Connection terminated unexpectedly'));
+    expect(classify(wrapped)).toMatchObject({ status: 503, kind: 'dependency' });
   });
 
   it('maps a wrapped shutdown-race error to 503', () => {

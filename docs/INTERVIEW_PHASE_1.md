@@ -857,7 +857,7 @@ that closes it:
   writing the plan and then contradicting it cost a decision round-trip. The plan was
   written before the data existed, which is the honest reason — but it is also an
   argument for phasing more loosely until the first measurement lands.
-- **87 tests and not one of them touches a database.** That is deliberate for now —
+- **96 tests and not one of them touches a database.** That is deliberate for now —
   the suite runs in four seconds and needs no services — but it means the pagination
   query, the pool configuration and the `23505` translation are verified against mocks
   rather than against Postgres. Testcontainers in Phase 8 is where that becomes real,

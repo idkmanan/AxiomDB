@@ -280,7 +280,7 @@ So `import config from '#config/env.js'` resolves to `./src/config/env.js`.
 npm test
 ```
 
-87 tests across 8 suites, all passing, and no database or Docker required —
+96 tests across 8 suites, all passing, and no database or Docker required —
 `NODE_ENV=test` keeps the app off the pg pool and drops winston's file
 transports, which were holding descriptors open and producing jest's "did not
 exit one second after the test run" warning (F-27).

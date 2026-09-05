@@ -324,14 +324,35 @@ assert_clean_run() {
     if (nonShed > 0) {
       console.error('DEFECT: ' + nonShed + ' non-503 5xx response(s) — application error, not capacity.');
       console.error('  5xx rate ' + (r5xx * 100).toFixed(2) + '% of which ' + n503 + ' were 503 (shed).');
-      console.error('  Investigate before quoting this run.');
       process.exit(1);
     }
     if (n503 > 0) {
       const censored = netfail > 0 ? ' (row is also censored: ' + netfail + ' abandoned)' : '';
       console.error('  note: ' + n503 + ' request(s) shed with 503 — saturation, expected past the knee' + censored);
     }
-  "
+  " || {
+    # A count is not a diagnosis. Two breakdowns before stopping, so the abort names
+    # the code path instead of leaving the reader to guess — same reasoning as F-12.
+    local samples="${file%.json}.samples.json.gz"
+    if [ -f "$samples" ]; then
+      node benchmarks/scripts/status-histogram.mjs "$samples" || true
+    fi
+
+    # The application's own view. The error handler logs every failure with `kind`,
+    # `name`, `code`, `message` and `cause`, which is what actually identifies an
+    # unmapped error shape — and container logs vanish on teardown, so they are
+    # captured to a file here rather than left for someone to remember to look at.
+    local errlog="${file%.json}.app-errors.log"
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs --no-color app 2>/dev/null |
+      grep -E '"status":5[0-9][0-9]' | tail -40 >"$errlog" || true
+    if [ -s "$errlog" ]; then
+      red "app-side errors written to $errlog — last 3:"
+      tail -3 "$errlog" | cut -c1-400
+    fi
+
+    red "run rejected: see the breakdown above"
+    return 1
+  }
 }
 
 run_closed() {

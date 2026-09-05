@@ -42,6 +42,7 @@ build/
 benchmarks/**/raw-stream-*.json
 benchmarks/**/*.samples.json
 benchmarks/**/*.samples.json.gz
+benchmarks/**/*.app-errors.log
 benchmarks/.sampler.log
 
 # ---- editor / OS ----

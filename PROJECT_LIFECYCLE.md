@@ -15,7 +15,7 @@ commit messages and docs. Every finding cites a file and line or a command outpu
 | Phase | Status | Started | Completed | Deliverable |
 |---|---|---|---|---|
 | 0 — Baseline measurement | **Complete** — matrix executed, results committed, findings F-01..F-20 recorded | 2026-09-01 | 2026-09-03 | Reproducible benchmark harness + v0 numbers |
-| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-36 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
+| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-37 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
 | 2 — TypeScript migration | Not started | — | — | Strict-typed source |
 | 3 — Postgres foundation | Not started — **rescoped**, see the Phase 1 section | — | — | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
 | 4 — Redis: limits & tokens | Not started | — | — | Distributed rate limiting, refresh rotation |
@@ -492,14 +492,37 @@ instead of silently reverting a status code. It also distinguishes SQLSTATE (fiv
 characters of `[0-9A-Z]`) from a Node system code, because `ECONNREFUSED` sitting in
 the same `code` property would otherwise be looked up as a Postgres error.
 
-Verified live, which is what the raw-error tests could not do:
+| F-37 | **`connectionTimeoutMillis` produces two different errors, and only one was matched.** `pg-pool/index.js:224` raises `'timeout exceeded when trying to connect'` when the pool is at `max` and a request waits in the queue; `pg-pool/index.js:276` raises `'Connection terminated due to connection timeout'` when the pool is *below* max, opens a new client, and that client's `connect()` does not finish in time. Nothing distinguishes them operationally — both mean the configured timeout expired, both are retryable — but only the first was classified, so which status a request got depended on which path the pool happened to take | v1 20-VU re-run: 7 × 503 (path 1) and 6 × 500 (path 2), the 500s logged with `"cause":"Connection terminated due to connection timeout"` and `"kind":"unknown"`; both strings verified in `node_modules/pg-pool/index.js` | **Correctness — same condition, two statuses** |
 
-```
-thrown message : "Failed query: select \"id\", \"name\", \"email\", …"
-own .code      : undefined      <- why the old check missed it
-cause .code    : ECONNREFUSED
-classify()     -> {"status":503,"kind":"dependency"}     (was 500)
-```
+**F-37 closes the loop opened by F-33 and F-36, and it took three attempts.** Worth
+stating plainly rather than presenting the final version as if it were the first: F-33
+set out to map pool exhaustion to 503 and matched one string; F-36 found the match was
+looking at the wrong object because drizzle wraps driver errors; F-37 found the string
+itself was only one of two the same setting can produce. Each attempt was verified —
+and each verification was narrower than the failure mode.
+
+Why `connect()` times out against a healthy Postgres is the interesting part: the event
+loop is blocked in bcrypt — sign-in p50 was 2091 ms at that level — so the connect
+callback cannot be scheduled inside 5 s. Four of the six were on `POST /sign-in`. The
+pool is not too small; increasing `PG_POOL_MAX` would add concurrent queries to a core
+that is already saturated. Pool pre-warming is the real mitigation and belongs in
+Phase 3.
+
+What changed structurally, so this stops recurring: the matched strings are now a
+declarative table in `src/utils/db-error.js`, and `tests/db-error.test.js` asserts
+**every needle still appears in the installed pg source**. That converts fragile string
+matching into a checked contract — a pg upgrade that rewords one of them fails a test
+instead of quietly turning load shedding back into a 500, which is exactly how F-33 and
+F-37 stayed hidden until a benchmark tripped over them.
+
+Also added: `benchmarks/scripts/status-histogram.mjs`, and `assert_clean_run` now runs
+it on rejection and captures the matching app-side error lines to
+`<run>.app-errors.log` before stopping. The previous message — "6 non-503 5xx
+response(s)" — was a correct number with no status, no endpoint and no cause, and
+container logs vanish on teardown. That is finding F-12 one level down: F-12 was a
+failure *rate* that could not be attributed, this was a failure *count* that could not
+be attributed, and both are fixed by reading the per-request stream that already had
+the answer.
 
 **F-32 is the one worth carrying forward**, and its lesson is narrower and sharper
 than "test in CI": *the reason my verification passed was that my environment
@@ -663,7 +686,7 @@ non-zero 429 rate.
 
 - `npm run lint` → **0 errors** (from 37). `npm run format:check` → clean. Both are
   now blocking in CI.
-- `npm test` → **87 tests across 8 suites**, all passing, process exits cleanly.
+- `npm test` → **96 tests across 8 suites**, all passing, process exits cleanly.
   Coverage of the new behaviour rather than the old three smoke tests: the
   escalation attempt, the limiter's status/headers/keying/failure policy, the
   logger's formatted output, `classify()`'s full mapping, no stack in any error
@@ -741,7 +764,7 @@ for `tag: "unavailable"`.
 - [x] CI lint and format blocking; 37 pre-existing errors cleared
 - [x] Docker image name corrected
 - [x] Harness: frozen instrument preserved, realistic mix added, saturation fixed (F-17)
-- [x] Findings F-21..F-36 recorded with evidence
+- [x] Findings F-21..F-37 recorded with evidence
 - [x] `docs/INTERVIEW_PHASE_1.md` written
 - [ ] `v1-correctness` tag pushed
 - [ ] v1 matrix executed on the Docker host

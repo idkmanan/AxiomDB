@@ -92,3 +92,90 @@ export function chainMessageIncludes(err, needle) {
   }
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Retryable driver conditions — finding F-37.
+//
+// `connectionTimeoutMillis` does not produce one error. It produces TWO, from two
+// different places in pg-pool, depending on which path the pool happened to take:
+//
+//   pg-pool/index.js:224   new Error('timeout exceeded when trying to connect')
+//       the pool is at `max` and this request waited in the queue past the timeout
+//
+//   pg-pool/index.js:276   new Error('Connection terminated due to connection timeout', { cause })
+//       the pool was BELOW max, opened a new client, and that client's connect()
+//       did not complete in time — so the timer at :255 killed it
+//
+// The v1 20-VU run hit both. Seven requests took the first path and were correctly
+// shed as 503; six took the second and became 500s, because only the first string
+// was matched. Nothing distinguishes them operationally: both mean "the configured
+// connection timeout expired", and both are retryable.
+//
+// Why connect() times out against a healthy Postgres is worth stating: the event
+// loop is blocked in bcrypt (sign-in p50 was 2091 ms at that level), so the connect
+// callback cannot be scheduled within 5 s. Four of the six were on POST /sign-in.
+//
+// Declared as a table rather than a chain of `if`s so the set is enumerable — and
+// tests/db-error.test.js asserts every needle below still appears in the installed
+// pg source. That converts fragile string matching into a checked contract: a pg
+// upgrade that rewords one of these fails a test instead of quietly turning load
+// shedding back into a 500.
+// ---------------------------------------------------------------------------
+export const RETRYABLE_DRIVER_MESSAGES = [
+  {
+    needle: 'timeout exceeded when trying to connect',
+    source: 'pg-pool',
+    status: 503,
+    message: 'Server is at capacity; retry shortly',
+    kind: 'saturation',
+  },
+  {
+    needle: 'Connection terminated due to connection timeout',
+    source: 'pg-pool',
+    status: 503,
+    message: 'Server is at capacity; retry shortly',
+    kind: 'saturation',
+  },
+  {
+    needle: 'Cannot use a pool after calling end on the pool',
+    source: 'pg-pool',
+    status: 503,
+    message: 'Server is shutting down',
+    kind: 'shutdown',
+  },
+  {
+    // Socket closed mid-query. Retryable: the request was valid and never answered.
+    needle: 'Connection terminated unexpectedly',
+    source: 'pg',
+    status: 503,
+    message: 'Database connection was lost; retry shortly',
+    kind: 'dependency',
+  },
+  {
+    needle: 'Client has encountered a connection error and is not queryable',
+    source: 'pg',
+    status: 503,
+    message: 'Database connection was lost; retry shortly',
+    kind: 'dependency',
+  },
+  {
+    needle: 'Client was closed and is not queryable',
+    source: 'pg',
+    status: 503,
+    message: 'Server is shutting down',
+    kind: 'shutdown',
+  },
+];
+
+/**
+ * Match a thrown error against the retryable table.
+ * @returns {{status:number,message:string,kind:string} | null}
+ */
+export function retryableDriverFailure(err) {
+  for (const entry of RETRYABLE_DRIVER_MESSAGES) {
+    if (chainMessageIncludes(err, entry.needle)) {
+      return { status: entry.status, message: entry.message, kind: entry.kind };
+    }
+  }
+  return null;
+}

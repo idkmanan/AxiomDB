@@ -17,7 +17,7 @@
 // ---------------------------------------------------------------------------
 import logger from '#config/logger.js';
 import config from '#config/env.js';
-import { pgCodeOf, systemCodeOf, chainMessageIncludes } from '#utils/db-error.js';
+import { pgCodeOf, systemCodeOf, retryableDriverFailure } from '#utils/db-error.js';
 
 /** Error carrying an intended HTTP status. Thrown by services. */
 export class AppError extends Error {
@@ -84,27 +84,20 @@ export function classify(err) {
     return { status: 503, message: 'A downstream dependency is unavailable', kind: 'dependency' };
   }
 
-  // POOL EXHAUSTION — finding F-33. Matched on the MESSAGE because node-postgres
-  // attaches no code to it (`pg-pool/index.js:224` constructs a bare
-  // `new Error('timeout exceeded when trying to connect')`).
+  // POOL EXHAUSTION AND LOST CONNECTIONS — findings F-33, F-36, F-37.
   //
-  // This is the branch src/config/env.js already claimed existed: "Fail fast
-  // instead of queueing indefinitely. A 503 in 5s is a usable signal; a request
-  // that never returns is not." Setting `connectionTimeoutMillis` delivered the
-  // fail-fast half and nothing mapped the result, so pool exhaustion surfaced as a
-  // 500 — indistinguishable from a bug in application code.
+  // Matched on the message, because node-postgres attaches no code to any of these,
+  // and matched across the whole `cause` chain, because drizzle wraps them. The set
+  // lives in src/utils/db-error.js as a table whose every entry is asserted to still
+  // exist in the installed pg source, so a reword breaks a test rather than silently
+  // reverting load shedding to a 500.
   //
-  // 503 is correct because the request was valid and a retry may succeed. Matching
-  // a dependency's error string is fragile, so it is last, narrow, and paired with
-  // a test that fails if the pool changes the wording.
-  if (chainMessageIncludes(err, 'timeout exceeded when trying to connect')) {
-    return { status: 503, message: 'Server is at capacity; retry shortly', kind: 'saturation' };
-  }
-  // Raised by pg-pool once `end()` has been called — a request that arrived during
-  // the shutdown drain. Also retry-elsewhere, not a bug.
-  if (chainMessageIncludes(err, 'Cannot use a pool after calling end on the pool')) {
-    return { status: 503, message: 'Server is shutting down', kind: 'shutdown' };
-  }
+  // This is the branch src/config/env.js already claimed existed: "Fail fast instead
+  // of queueing indefinitely. A 503 in 5s is a usable signal; a request that never
+  // returns is not." Setting `connectionTimeoutMillis` delivered the fail-fast half;
+  // three separate attempts were needed to make the classification match reality.
+  const retryable = retryableDriverFailure(err);
+  if (retryable) return retryable;
 
   return { status: 500, message: 'Internal Server Error', kind: 'unknown' };
 }
