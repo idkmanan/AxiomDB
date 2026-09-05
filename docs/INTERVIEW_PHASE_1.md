@@ -772,6 +772,56 @@ enumerate what else was depending on it.** F-17 was a saturation probe that meas
 the wrong thing; this was a restart that was load-bearing for a reason not stated
 anywhere.
 
+### The re-run then found the real bug (F-36)
+
+With isolation restored the matrix got to 20 VUs and stopped on the runner's own
+assertion: `8 non-503 5xx responses, 0 shed`. So the F-33 fix had not worked, and the
+reason is the best single lesson in the phase.
+
+**Drizzle does not propagate driver errors.** Every failing query is rethrown as a
+`DrizzleQueryError` (`node_modules/drizzle-orm/errors.js:10`):
+
+```js
+super(`Failed query: ${query}\nparams: ${params}`);
+this.cause = cause;              // the real pg error lives HERE
+```
+
+The wrapper's own message is always `"Failed query: …"` and it carries **no** `code`.
+Verified live against an unreachable database:
+
+```
+own .code   : undefined      <- why the old check missed it
+cause .code : ECONNREFUSED
+```
+
+So two Phase 1 changes were inert:
+
+- `classify()` matched `'timeout exceeded when trying to connect'` on `err.message`.
+  Under drizzle that string is at `err.cause.message`, so pool exhaustion kept
+  returning 500.
+- `createUser` translated SQLSTATE 23505 by reading `e.code`. Under drizzle that is
+  `e.cause.code` — **so the signup race still returned 500, not the 409 this phase
+  claimed to have fixed.**
+
+And both unit tests passed, because both constructed *raw* pg-shaped errors
+(`Object.assign(new Error('duplicate key'), { code: '23505' })`) rather than the shape
+the application actually throws.
+
+That is the third finding in a row with the same root cause, and the repetition is the
+point worth making:
+
+> F-31, F-32 and F-36 are all one mistake: a test written from the same mental model as
+> the code inherits its blind spots. Raw errors in the test and wrapped ones in
+> production; a `.env` locally and none in CI; the two things already right asserted
+> and the two wrong ones not.
+
+The structural answer rather than three spot fixes: `src/utils/db-error.js` walks the
+`cause` chain, and `tests/db-error.test.js` **constructs the DrizzleQueryError shape
+explicitly** — stating the contract it depends on, so a drizzle change breaks a test
+instead of quietly reverting a status code. It also separates SQLSTATE (five characters
+of `[0-9A-Z]`) from Node system codes, because `ECONNREFUSED` in the same `code`
+property would otherwise be looked up as a Postgres error.
+
 ---
 
 ## 16. "What's still broken?"
@@ -807,7 +857,7 @@ that closes it:
   writing the plan and then contradicting it cost a decision round-trip. The plan was
   written before the data existed, which is the honest reason — but it is also an
   argument for phasing more loosely until the first measurement lands.
-- **68 tests and not one of them touches a database.** That is deliberate for now —
+- **87 tests and not one of them touches a database.** That is deliberate for now —
   the suite runs in four seconds and needs no services — but it means the pagination
   query, the pool configuration and the `23505` translation are verified against mocks
   rather than against Postgres. Testcontainers in Phase 8 is where that becomes real,

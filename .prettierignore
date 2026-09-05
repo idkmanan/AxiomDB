@@ -22,8 +22,13 @@ package-lock.json
 # Committed benchmark output. Machine-written evidence behind the latency claims,
 # already marked linguist-generated in .gitattributes. Reformatting it would
 # change bytes a reviewer is meant to be able to diff against a re-run.
+#
+# Globbed across every phase directory rather than named one at a time: the v0
+# fingerprint was listed explicitly, so the v1 runner's fingerprint failed the
+# blocking format:check the first time a phase directory appeared. Same mistake
+# .gitattributes had, same fix.
 benchmarks/**/results/
-benchmarks/v0-baseline/environment.json
+benchmarks/*/environment.json
 
 # FROZEN MEASUREMENT INSTRUMENT — see BENCHMARKING.md.
 # baseline.js is the script the v0 numbers were produced with, and the v0-vs-v1

@@ -15,7 +15,7 @@ commit messages and docs. Every finding cites a file and line or a command outpu
 | Phase | Status | Started | Completed | Deliverable |
 |---|---|---|---|---|
 | 0 — Baseline measurement | **Complete** — matrix executed, results committed, findings F-01..F-20 recorded | 2026-09-01 | 2026-09-03 | Reproducible benchmark harness + v0 numbers |
-| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-35 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
+| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-36 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
 | 2 — TypeScript migration | Not started | — | — | Strict-typed source |
 | 3 — Postgres foundation | Not started — **rescoped**, see the Phase 1 section | — | — | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
 | 4 — Redis: limits & tokens | Not started | — | — | Distributed rate limiting, refresh rotation |
@@ -477,6 +477,29 @@ this phase added.
 | F-33 | Pool exhaustion surfaced as **500**. `connectionTimeoutMillis` was set — the fail-fast half — but nothing mapped the resulting error, and node-postgres attaches no `code` to it (`pg-pool/index.js:224` constructs a bare `new Error('timeout exceeded when trying to connect')`). So `classify()` fell through to 500 and correct load shedding was indistinguishable from an application bug. `src/config/env.js` had already asserted the intended behaviour in a comment — "a 503 in 5s is a usable signal" — and it was never implemented | v1 500-VU run: `5xx rate 0.07`, users-list p95 **5086 ms** and user-by-id p95 **5004 ms**, both pinned at the 5000 ms `connectionTimeoutMillis` | **Correctness — a 500 that was not a defect** |
 | F-34 | The runner stopped restarting the app between runs, so levels were no longer independent. Phase 0 recreated the container before every run because that was how it flipped `BENCH_BYPASS_SECURITY`; the restart was doing two jobs and removing the flag removed the isolation with it. After the 500-VU level, 752 abandoned requests were still being processed server-side holding pool connections, 45 s of cool-down did not drain them, and the 1000-VU `setup()` got a 500 on admin sign-in and aborted the matrix | `git show v0-baseline:benchmarks/scripts/run-baseline.sh \| grep force-recreate` → lines 214, 262; absent from `run_closed` | **Measurement validity** |
 | F-35 | `package-lock.json` still declared `@arcjet/inspect`, `@arcjet/node` and `morgan` as root dependencies after they were removed from `package.json`, so `npm ci` kept installing 20 packages the code no longer imports | `node -e` diff of lock root deps vs `package.json` → 3 extra, 17 arcjet + 3 morgan tree entries | Hygiene |
+| F-36 | **Drizzle wraps every driver error, so both database-error mappings Phase 1 added were dead.** `DrizzleQueryError` (`node_modules/drizzle-orm/errors.js:10`) rethrows with its own message `"Failed query: …"` and **no** `code`, putting the real pg error in `cause`. So `classify()`'s pool-exhaustion match on `err.message` (F-33) never fired, and `createUser`'s `e?.code === '23505'` never fired — meaning the signup race still returned 500 rather than the 409 Phase 1 claimed to have fixed. Both unit tests passed because both constructed RAW pg-shaped errors rather than the wrapped shape the application actually throws | verified live against an unreachable database: `own .code = undefined`, `cause.code = ECONNREFUSED`, `message = "Failed query: select …"`. The v1 20-VU run reported `8 non-503 5xx, 0 shed` and aborted the matrix | **Correctness — two fixes that were inert** |
+
+**F-36 is the third time the same mistake has produced a finding**, and that
+repetition is the finding. F-31, F-32 and F-36 are all: *a test written from the same
+mental model as the code inherits its blind spots.* Raw pg errors in the test, wrapped
+ones in production; a local `.env` in the test environment, none in CI; the two things
+already right asserted and the two wrong ones not.
+
+What changed structurally, rather than just being fixed: `src/utils/db-error.js` walks
+the `cause` chain, and `tests/db-error.test.js` constructs the DrizzleQueryError shape
+explicitly — stating the contract it depends on, so a drizzle change breaks a test
+instead of silently reverting a status code. It also distinguishes SQLSTATE (five
+characters of `[0-9A-Z]`) from a Node system code, because `ECONNREFUSED` sitting in
+the same `code` property would otherwise be looked up as a Postgres error.
+
+Verified live, which is what the raw-error tests could not do:
+
+```
+thrown message : "Failed query: select \"id\", \"name\", \"email\", …"
+own .code      : undefined      <- why the old check missed it
+cause .code    : ECONNREFUSED
+classify()     -> {"status":503,"kind":"dependency"}     (was 500)
+```
 
 **F-32 is the one worth carrying forward**, and its lesson is narrower and sharper
 than "test in CI": *the reason my verification passed was that my environment
@@ -640,7 +663,7 @@ non-zero 429 rate.
 
 - `npm run lint` → **0 errors** (from 37). `npm run format:check` → clean. Both are
   now blocking in CI.
-- `npm test` → **68 tests across 6 suites**, all passing, process exits cleanly.
+- `npm test` → **87 tests across 8 suites**, all passing, process exits cleanly.
   Coverage of the new behaviour rather than the old three smoke tests: the
   escalation attempt, the limiter's status/headers/keying/failure policy, the
   logger's formatted output, `classify()`'s full mapping, no stack in any error
@@ -718,7 +741,7 @@ for `tag: "unavailable"`.
 - [x] CI lint and format blocking; 37 pre-existing errors cleared
 - [x] Docker image name corrected
 - [x] Harness: frozen instrument preserved, realistic mix added, saturation fixed (F-17)
-- [x] Findings F-21..F-35 recorded with evidence
+- [x] Findings F-21..F-36 recorded with evidence
 - [x] `docs/INTERVIEW_PHASE_1.md` written
 - [ ] `v1-correctness` tag pushed
 - [ ] v1 matrix executed on the Docker host

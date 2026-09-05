@@ -4,6 +4,7 @@ import logger from '#config/logger.js';
 import { db } from '#config/database.js';
 import { users } from '#models/user.model.js';
 import { AppError } from '#middleware/error.middleware.js';
+import { pgCodeOf } from '#utils/db-error.js';
 
 // bcrypt cost 10, measured on the benchmark host at 54.8 ms per compare
 // (finding F-05, re-measured during the Phase 0 run). That is the largest single
@@ -113,7 +114,14 @@ export const createUser = async ({ name, password, email }) => {
     // Translating 23505 makes the RESPONSE correct. It does not make the code
     // correct: this is still check-then-act, and Phase 3 wraps it in a
     // transaction where it becomes the worked example for isolation levels.
-    if (e?.code === '23505') {
+    //
+    // `pgCodeOf` walks the cause chain rather than reading `e.code`, and that is
+    // finding F-36: drizzle rethrows every driver failure as a DrizzleQueryError
+    // whose own message is "Failed query: …" and which carries no code, so the
+    // original `e?.code === '23505'` never matched and the race still produced a
+    // 500. The unit test passed because it constructed a raw pg-shaped error
+    // rather than the wrapped shape the application actually throws.
+    if (pgCodeOf(e) === '23505') {
       logger.warn('Signup lost a race to the unique constraint on users.email');
       throw new AppError('User with this email already exists', 409, {
         code: 'EMAIL_TAKEN',

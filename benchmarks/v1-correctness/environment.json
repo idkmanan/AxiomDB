@@ -1,11 +1,11 @@
 {
   "phase": "v1",
-  "captured_at": "2026-09-05T07:07:46.600Z",
+  "captured_at": "2026-09-05T08:13:35.374Z",
   "git": {
-    "commit": "6e8b8cf206f833f322247c355d3a1f958c2f2786",
-    "short": "6e8b8cf",
+    "commit": "eb01979716d4449bb525deb58bebc30def39a353",
+    "short": "eb01979",
     "tag": "v1-correctness",
-    "src_tree": "e661e545eeb974c123bd666e32f7d0a16ba1952d"
+    "src_tree": "c1dae54a522cbb5e42f990a12a0edfbfb3c7b89e"
   },
   "host": {
     "platform": "linux",
@@ -13,7 +13,11 @@
     "cpu_model": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
     "cpu_count": 8,
     "total_mem_mb": 7212,
-    "load_avg": [0.91, 0.52, 0.45]
+    "load_avg": [
+      0.86,
+      0.89,
+      0.81
+    ]
   },
   "tooling": {
     "node": "v22.22.1",
