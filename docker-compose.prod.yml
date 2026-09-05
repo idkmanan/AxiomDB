@@ -5,7 +5,7 @@
 #        docker-compose -f docker-compose.prod.yml logs -f app
 #        docker-compose -f docker-compose.prod.yml down
 # =============================================================================
-# 
+#
 # IMPORTANT: This compose file expects environment variables to be set via:
 #   - .env.production file (for local testing only)
 #   - Platform secrets (Vercel, Railway, Render, AWS, etc.)
@@ -15,9 +15,17 @@
 #   - DATABASE_URL (Neon Cloud connection string)
 #   - JWT_SECRET (min 32 chars: openssl rand -base64 32)
 #   - COOKIE_SECRET (random string)
+#
+# JWT_SECRET is no longer optional: src/config/env.js THROWS at startup when it is
+# missing or shorter than 32 characters and NODE_ENV=production. v0 fell back to a
+# literal secret committed in this repository, so a deploy that forgot the variable
+# started cleanly and signed forgeable tokens.
+#
+# The `version:` key that used to sit below was removed in Phase 1 — obsolete since
+# Compose V2, and it printed a deprecation warning on every invocation.
 # =============================================================================
 
-version: '3.8'
+name: acquisitions-prod
 
 services:
   # ---------------------------------------------------------------------------
@@ -34,9 +42,14 @@ services:
       - .env.production
     ports:
       # Only expose port 3000; use reverse proxy (nginx, Traefik, Cloudflare) for TLS
-      - "3000:3000"
+      - '3000:3000'
     networks:
       - acquisitions-prod
+    # Must exceed SHUTDOWN_READINESS_DELAY_MS + SHUTDOWN_DRAIN_TIMEOUT_MS
+    # (2s + 10s by default, see src/config/env.js) or compose sends SIGKILL
+    # mid-drain and the graceful shutdown added in Phase 1 never completes. The
+    # Kubernetes equivalent is terminationGracePeriodSeconds, in Phase 7.
+    stop_grace_period: 20s
     deploy:
       resources:
         limits:
@@ -51,17 +64,23 @@ services:
         max_attempts: 3
         window: 120s
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) process.exit(1)})"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) process.exit(1)})",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
     restart: unless-stopped
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
 
   # ---------------------------------------------------------------------------
   # Optional: Reverse Proxy (Nginx) for TLS Termination

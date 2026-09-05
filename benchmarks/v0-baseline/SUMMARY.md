@@ -168,18 +168,20 @@ every VU shares one source address and the whole matrix becomes 403s.
 ```bash
 cp .env.bench.example .env.bench
 git checkout v0-baseline
-./benchmarks/scripts/run-baseline.sh
-node benchmarks/scripts/report.mjs
+PHASE=v0 ./benchmarks/scripts/run-phase.sh
+node benchmarks/scripts/report.mjs --phase v0 --dir benchmarks/v0-baseline/results --out benchmarks/v0-baseline/SUMMARY.md
+node benchmarks/scripts/attribute-failures.mjs --dir benchmarks/v0-baseline/results
 ```
 
-The VU levels are env-overridable, so a quick partial probe needs no code
+Every level set is env-overridable, so a quick partial probe needs no code
 change:
 
 ```bash
-VU_LEVELS="5 10" ./benchmarks/scripts/run-baseline.sh
-node benchmarks/scripts/report.mjs
-node benchmarks/scripts/attribute-failures.mjs
+VU_LEVELS="5 10" REALISTIC_LEVELS="" SAT_RATES="10" \
+  PHASE=v0 ./benchmarks/scripts/run-phase.sh
 ```
 
-The default matrix is all seven levels because the report needs both sides of
-the knee, and takes roughly 75 minutes.
+The default frozen-instrument matrix is all seven levels because the report
+needs both sides of the knee. Extrapolated from the Phase 0 run at ~4.4 minutes
+per closed-model run including cool-down, the defaults come to roughly 50
+minutes.

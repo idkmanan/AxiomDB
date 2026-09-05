@@ -1,33 +1,51 @@
 // ---------------------------------------------------------------------------
 // Saturation test — open model, fixed arrival rate.
 //
-// Run:
-//   k6 run -e RATE=200 -e RUN_TAG=v0-saturation benchmarks/k6/saturation.js
+//   k6 run -e RATE=20 -e RUN_TAG=v1-saturation benchmarks/k6/saturation.js
 //
-// Why this exists alongside baseline.js:
+// WHY THIS SCRIPT EXISTS alongside the closed-model ones:
 //
-// baseline.js uses ramping-vus, a CLOSED model. Each VU waits for its response
-// before sending the next request, so when the server slows down, the offered
-// load drops with it. That hides the true breaking point — the classic
-// coordinated-omission problem.
+// A closed model (ramping-vus) has each VU wait for its response before sending
+// the next request, so when the server slows down the load generator slows down
+// with it. The system is never pushed past what it can absorb and the latency
+// distribution looks better than reality — coordinated omission. An open model
+// (constant-arrival-rate) issues requests on a schedule regardless, and reports
+// `dropped_iterations` when it cannot keep to that schedule. That is the honest
+// saturation signal.
 //
-// This script uses constant-arrival-rate, an OPEN model: requests are issued on
-// a schedule regardless of whether the server is keeping up. When the app cannot
-// service them, k6 reports dropped_iterations, which is the honest signal that
-// capacity has been exceeded. Being able to explain the difference between these
-// two models is the point of shipping both.
 // ---------------------------------------------------------------------------
-import http from 'k6/http';
-import { check } from 'k6';
-import { BASE_URL, RUN_TAG } from './lib/config.js';
-import { apiRootLatency, record } from './lib/metrics.js';
+// FINDING F-17 — FIXED HERE. This script used to measure the wrong thing.
+//
+// The v0 version hit `GET /api`, a static JSON response with no database access
+// and no bcrypt, and run-baseline.sh started these probes with
+// BENCH_BYPASS_SECURITY=1 so the middleware was skipped as well. It therefore
+// reported Express routing throughput on the pinned core — 500 req/s at p95
+// 3.33 ms with zero drops — and never dropped an iteration even at 500 rps.
+// Reading that as "the saturation point" would have been wrong by more than an
+// order of magnitude: the real mix managed 27 req/s on the same core.
+//
+// That number was not useless — docs/INTERVIEW_PHASE_0.md §5 uses it as the proof
+// that framework overhead is not the constraint, which is exactly the sort of
+// claim a static-route probe CAN support. It just was not capacity.
+//
+// It now drives the same journey as realistic.js, against the real application
+// with its real middleware, so `dropped_iterations` means what the docs say it
+// means. Consequence worth expecting: the useful RATE values fall by roughly two
+// orders of magnitude. v0 probed 50/200/500 rps and absorbed all of it; the real
+// mix knees in the low tens, so the runner probes there instead. A probe whose
+// every level passes has not found a limit.
+// ---------------------------------------------------------------------------
+import { BASE_URL, RUN_TAG, RESULTS_DIR } from './lib/config.js';
+import { authenticateAdmin, readHeavyIteration, AUTH_RATIO } from './lib/journey.js';
 
-const RATE = Number(__ENV.RATE || 100); // requests per second
+const RATE = Number(__ENV.RATE || 10); // iterations per second
 const DURATION = __ENV.DURATION || '1m';
 
 // preAllocatedVUs must be generous: if k6 runs out of VUs it under-delivers the
-// requested rate, which looks like the server coping when it is not.
-const PRE_ALLOCATED = Number(__ENV.PRE_ALLOCATED_VUS || Math.max(50, RATE * 2));
+// requested rate, which looks like the server coping when it is not. The v0 value
+// was tuned for a static route answering in ~3 ms; the real mix takes far longer
+// per iteration, so many more VUs are needed to sustain the same arrival rate.
+const PRE_ALLOCATED = Number(__ENV.PRE_ALLOCATED_VUS || Math.max(50, RATE * 20));
 const MAX_VUS = Number(__ENV.MAX_VUS || PRE_ALLOCATED * 4);
 
 export const options = {
@@ -43,8 +61,6 @@ export const options = {
     },
   },
   thresholds: {
-    // dropped_iterations is the metric that matters here. Anything above zero
-    // means the requested arrival rate exceeded what the system could absorb.
     dropped_iterations: ['count>=0'],
     http_req_duration: ['p(95)>=0'],
   },
@@ -53,25 +69,21 @@ export const options = {
 };
 
 export function setup() {
-  const res = http.get(`${BASE_URL}/health`, { timeout: '10s' });
-  if (res.status !== 200) {
-    throw new Error(`Target not healthy at ${BASE_URL}/health (status ${res.status}).`);
-  }
+  return authenticateAdmin();
 }
 
-export default function () {
-  // Deliberately hits the unauthenticated /api endpoint so this measures
-  // request-path capacity without bcrypt dominating the result.
-  const res = http.get(`${BASE_URL}/api`, { tags: { endpoint: 'api_root' } });
-  record(res, apiRootLatency);
-  check(res, { 'answered': (r) => r.status !== 0 });
+export default function (data) {
+  // No think time. In an open model the arrival schedule sets the offered load, so
+  // a sleep here would only occupy VUs and make k6 run out of them.
+  readHeavyIteration(data);
 }
 
 export function handleSummary(data) {
-  const stem = `benchmarks/v0-baseline/results/${RUN_TAG}-rate${RATE}`;
+  const stem = `${RESULTS_DIR}/${RUN_TAG}-rate${RATE}`;
   const dropped =
     (data.metrics.dropped_iterations && data.metrics.dropped_iterations.values.count) || 0;
-  const completed = (data.metrics.http_reqs && data.metrics.http_reqs.values.count) || 0;
+  const completed = (data.metrics.iterations && data.metrics.iterations.values.count) || 0;
+  const requests = (data.metrics.http_reqs && data.metrics.http_reqs.values.count) || 0;
 
   return {
     [`${stem}.json`]: JSON.stringify(
@@ -79,13 +91,17 @@ export function handleSummary(data) {
         meta: {
           run_tag: RUN_TAG,
           model: 'open (constant-arrival-rate)',
-          requested_rate_rps: RATE,
+          mix: 'realistic read-heavy (same journey as realistic.js)',
+          auth_ratio: AUTH_RATIO,
+          requested_rate_ips: RATE,
           duration: DURATION,
+          base_url: BASE_URL,
           generated_at: new Date().toISOString(),
         },
         capacity: {
-          requested_total: RATE * parseDurationSeconds(DURATION),
-          completed_total: completed,
+          requested_iterations: RATE * parseDurationSeconds(DURATION),
+          completed_iterations: completed,
+          completed_requests: requests,
           dropped_iterations: dropped,
           note:
             dropped > 0
@@ -97,7 +113,13 @@ export function handleSummary(data) {
       null,
       2
     ),
-    stdout: `\n  requested ${RATE} rps for ${DURATION}\n  completed: ${completed}\n  dropped:   ${dropped}\n  p95:       ${fmt(data.metrics.http_req_duration, 'p(95)')} ms\n  p99:       ${fmt(data.metrics.http_req_duration, 'p(99)')} ms\n\n`,
+    stdout:
+      `\n  requested ${RATE} iter/s for ${DURATION}  (mix: realistic)\n` +
+      `  completed iterations: ${completed}\n` +
+      `  completed requests:   ${requests}\n` +
+      `  dropped iterations:   ${dropped}\n` +
+      `  p95: ${fmt(data.metrics.http_req_duration, 'p(95)')} ms   ` +
+      `p99: ${fmt(data.metrics.http_req_duration, 'p(99)')} ms\n\n`,
   };
 }
 

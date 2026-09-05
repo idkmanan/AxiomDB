@@ -4,3 +4,31 @@ logs/
 drizzle/
 *.log
 package-lock.json
+
+# ---------------------------------------------------------------------------
+# Added in Phase 1, when `npm run format:check` became a blocking CI gate
+# (.github/workflows/lint-and-format.yml). A gate is only worth having if it
+# fails for real reasons, so anything the formatter should not own is excluded
+# here rather than being reformatted to satisfy it.
+# ---------------------------------------------------------------------------
+
+# Prose. These documents are hand-wrapped at 80 columns and read as prose;
+# prettier reflows markdown tables and list continuations, which would produce a
+# large diff with no reader-visible benefit. PROJECT_LIFECYCLE.md is additionally
+# append-only by its own stated rule, so reformatting past phases is exactly the
+# edit that file forbids.
+*.md
+
+# Committed benchmark output. Machine-written evidence behind the latency claims,
+# already marked linguist-generated in .gitattributes. Reformatting it would
+# change bytes a reviewer is meant to be able to diff against a re-run.
+benchmarks/**/results/
+benchmarks/v0-baseline/environment.json
+
+# FROZEN MEASUREMENT INSTRUMENT — see BENCHMARKING.md.
+# baseline.js is the script the v0 numbers were produced with, and the v0-vs-v1
+# comparison is only valid while it stays the same instrument. Formatting is not
+# behaviour, but a formatter that rewrites this file on a whim is one more way for
+# it to drift, so the tool is simply not allowed to touch it. The realistic-mix
+# and saturation scripts are not frozen and are formatted normally.
+benchmarks/k6/baseline.js

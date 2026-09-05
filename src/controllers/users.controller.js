@@ -1,137 +1,136 @@
 import logger from '#config/logger.js';
-import { formatValidationError } from '#utils/format.js';
-import { 
-  getAllUsers, 
-  getUserById as getUserByIdService, 
-  updateUser as updateUserService, 
-  deleteUser as deleteUserService
+import { formatValidationError, validationIssues } from '#utils/format.js';
+import {
+  getAllUsers,
+  getUserById as getUserByIdService,
+  updateUser as updateUserService,
+  deleteUser as deleteUserService,
 } from '#services/users.service.js';
-import { userIdSchema, updateUserSchema } from '#validations/users.validation.js';
+import {
+  userIdSchema,
+  updateUserSchema,
+  listUsersQuerySchema,
+} from '#validations/users.validation.js';
+
+/** One place for the repeated safeParse-then-400 shape. */
+function parseOr400(schema, input, res, req, what) {
+  const result = schema.safeParse(input);
+  if (result.success) return result.data;
+  logger.warn(`Validation error: ${what}`, {
+    requestId: req.id,
+    issues: validationIssues(result.error),
+  });
+  res.status(400).json({
+    message: 'Validation failed',
+    errors: formatValidationError(result.error),
+  });
+  return null;
+}
 
 export const fetchAllUsers = async (req, res, next) => {
   try {
-    logger.info('Getting all the users');
-    const allUsers = await getAllUsers();
+    const query = parseOr400(listUsersQuerySchema, req.query, res, req, 'list users query');
+    if (!query) return;
+
+    const { users, pagination } = await getAllUsers(query);
+
     res.json({
-      message: 'Successfully retrieved users...',
-      users: allUsers,
-      count: allUsers.length
+      message: 'Successfully retrieved users',
+      users,
+      pagination,
+      // `count` retained as the number of rows in THIS response, which is what it
+      // meant in v0 — there it happened to equal the table size because the query
+      // was unbounded. Kept so an existing client is not silently broken, with
+      // `pagination.total` as the field that now means what `count` used to.
+      count: pagination.returned,
     });
-  }catch(e){
-    logger.error(e);
+  } catch (e) {
     next(e);
   }
 };
 
 export const getUserById = async (req, res, next) => {
   try {
-    const validationResult = userIdSchema.safeParse(req.params);
-    if (!validationResult.success) {
-      logger.warn('Validation error getting user by ID', { errors: validationResult.error.errors });
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: formatValidationError(validationResult.error) 
-      });
-    }
+    const params = parseOr400(userIdSchema, req.params, res, req, 'get user by id');
+    if (!params) return;
 
-    const { id } = validationResult.data;
-    logger.info(`Getting user by ID: ${id}`);
-    const user = await getUserByIdService(id);
-        
+    const user = await getUserByIdService(params.id);
     if (!user) {
-      logger.warn(`User not found: ${id}`);
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: 'User not found', requestId: req.id });
     }
 
-    res.json({
-      message: 'Successfully retrieved user',
-      user
-    });
-  } catch(e) {
-    logger.error(e);
+    res.json({ message: 'Successfully retrieved user', user });
+  } catch (e) {
     next(e);
   }
 };
 
 export const updateUser = async (req, res, next) => {
   try {
-    const paramsValidation = userIdSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-      logger.warn('Validation error updating user - invalid ID', { errors: paramsValidation.error.errors });
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: formatValidationError(paramsValidation.error) 
+    const params = parseOr400(userIdSchema, req.params, res, req, 'update user id');
+    if (!params) return;
+    const updates = parseOr400(updateUserSchema, req.body, res, req, 'update user body');
+    if (!updates) return;
+
+    // Ownership check. `params.id` is already a Number (the schema transforms it),
+    // so this is a plain === rather than v0's `req.user.id !== parseInt(id)` —
+    // a comparison that was correct but only because parseInt was reapplied at
+    // every call site, which is the kind of thing that survives until one site
+    // forgets.
+    if (req.user.role !== 'admin' && req.user.id !== params.id) {
+      logger.warn('Unauthorized update attempt', {
+        requestId: req.id,
+        actorId: req.user.id,
+        targetId: params.id,
       });
+      return res
+        .status(403)
+        .json({ error: 'Forbidden', message: 'You can only update your own profile' });
     }
 
-    const bodyValidation = updateUserSchema.safeParse(req.body);
-    if (!bodyValidation.success) {
-      logger.warn('Validation error updating user', { errors: bodyValidation.error.errors });
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: formatValidationError(bodyValidation.error) 
-      });
-    }
-
-    const { id } = paramsValidation.data;
-    const updates = bodyValidation.data;
-
-    logger.info(`Updating user: ${id} by user: ${req.user.id} (role: ${req.user.role})`);
-
-    if (req.user.role !== 'admin' && req.user.id !== parseInt(id)) {
-      logger.warn(`Unauthorized update attempt: user ${req.user.id} tried to update user ${id}`);
-      return res.status(403).json({ error: 'Forbidden', message: 'You can only update your own profile' });
-    }
-
+    // Privilege escalation, second door. `role` is a permitted field on this
+    // schema, so without this check any authenticated user could promote
+    // themselves by updating their own profile — the same escalation as the signup
+    // bug, reached through a route that legitimately accepts the field.
     if (updates.role && req.user.role !== 'admin') {
-      logger.warn(`Unauthorized role change attempt: user ${req.user.id} tried to change role`);
-      return res.status(403).json({ error: 'Forbidden', message: 'Only admins can change user roles' });
+      logger.warn('Unauthorized role change attempt', {
+        requestId: req.id,
+        actorId: req.user.id,
+        targetId: params.id,
+      });
+      return res
+        .status(403)
+        .json({ error: 'Forbidden', message: 'Only admins can change user roles' });
     }
 
-    const updatedUser = await updateUserService(id, updates);
-    res.json({
-      message: 'User updated successfully',
-      user: updatedUser
-    });
-  } catch(e) {
-    if (e.message === 'User not found') {
-      logger.warn(`Update failed - user not found: ${req.params.id}`);
-      return res.status(404).json({ message: 'User not found' });
-    }
-    logger.error(e);
+    const updatedUser = await updateUserService(params.id, updates);
+    res.json({ message: 'User updated successfully', user: updatedUser });
+  } catch (e) {
+    // 'User not found' is an AppError with statusCode 404 from the service, so the
+    // global error handler renders it. v0 matched on the message string here.
     next(e);
   }
 };
 
 export const deleteUser = async (req, res, next) => {
   try {
-    const validationResult = userIdSchema.safeParse(req.params);
-    if (!validationResult.success) {
-      logger.warn('Validation error deleting user - invalid ID', { errors: validationResult.error.errors });
-      return res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: formatValidationError(validationResult.error) 
+    const params = parseOr400(userIdSchema, req.params, res, req, 'delete user id');
+    if (!params) return;
+
+    if (req.user.role !== 'admin' && req.user.id !== params.id) {
+      logger.warn('Unauthorized delete attempt', {
+        requestId: req.id,
+        actorId: req.user.id,
+        targetId: params.id,
       });
+      return res
+        .status(403)
+        .json({ error: 'Forbidden', message: 'You can only delete your own account' });
     }
 
-    const { id } = validationResult.data;
-    logger.info(`Deleting user: ${id} by user: ${req.user.id} (role: ${req.user.role})`);
-
-    if (req.user.role !== 'admin' && req.user.id !== parseInt(id)) {
-      logger.warn(`Unauthorized delete attempt: user ${req.user.id} tried to delete user ${id}`);
-      return res.status(403).json({ error: 'Forbidden', message: 'You can only delete your own account' });
-    }
-
-    await deleteUserService(id);
-    res.json({
-      message: 'User deleted successfully'
-    });
-  } catch(e) {
-    if (e.message === 'User not found') {
-      logger.warn(`Delete failed - user not found: ${req.params.id}`);
-      return res.status(404).json({ message: 'User not found' });
-    }
-    logger.error(e);
+    await deleteUserService(params.id);
+    res.json({ message: 'User deleted successfully' });
+  } catch (e) {
     next(e);
   }
 };

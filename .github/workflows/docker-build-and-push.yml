@@ -7,7 +7,12 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/local-kube-api
+  # Was `${{ secrets.DOCKER_USERNAME }}/local-kube-api` — a different project's
+  # name, copied in with the workflow. Commit c1c0707 is titled "fix: Docker
+  # github action image name" and did not fix it, so every image this repo has
+  # ever published landed under the wrong repository. Nothing failed, which is why
+  # it survived: the push succeeded, just to the wrong place.
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/acquisitions
 
 jobs:
   build-and-push:

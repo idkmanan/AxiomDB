@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 import http from 'k6/http';
 import { check, group, sleep } from 'k6';
-import { BASE_URL, thresholds, stages, runTags, RUN_TAG, VUS } from './lib/config.js';
+import { BASE_URL, thresholds, stages, runTags, RUN_TAG, VUS, RESULTS_DIR } from './lib/config.js';
 import {
   healthLatency,
   usersListLatency,
@@ -177,7 +177,13 @@ export function handleSummary(data) {
     },
     metrics: data.metrics,
   };
-  const stem = `benchmarks/v0-baseline/results/${RUN_TAG}-vus${VUS}`;
+  // ONLY line changed in this file after Phase 0. `RESULTS_DIR` replaces the
+  // hardcoded 'benchmarks/v0-baseline/results' so a second phase can write
+  // elsewhere. The output path is not part of the measurement — see the note in
+  // lib/config.js. Everything above this point is byte-identical to the script
+  // the v0 numbers were produced with, which is what makes the v0-vs-v1
+  // comparison legitimate.
+  const stem = `${RESULTS_DIR}/${RUN_TAG}-vus${VUS}`;
   return {
     [`${stem}.json`]: JSON.stringify(out, null, 2),
     stdout: textSummary(data),

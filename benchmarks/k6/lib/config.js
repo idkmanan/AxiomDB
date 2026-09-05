@@ -20,6 +20,22 @@ export const RAMP_DOWN = __ENV.RAMP_DOWN || '15s';
 export const RUN_TAG = __ENV.RUN_TAG || 'unlabelled';
 
 // ---------------------------------------------------------------------------
+// Where results are written. Added in Phase 1.
+//
+// v0 hardcoded `benchmarks/v0-baseline/results` inside each script's
+// handleSummary, which made a second phase impossible without editing the
+// scripts — and baseline.js is frozen precisely so it is not edited.
+//
+// The distinction this rests on, stated because it is the whole justification:
+// the FROZEN thing is the measured behaviour — the request mix, the load shape,
+// the thresholds, the tags. Where the resulting file lands is not part of the
+// measurement, so parameterising the sink does not break the freeze while
+// changing a single request would. Anyone auditing the v0-vs-v1 comparison should
+// diff baseline.js between the two runs and find exactly this one line.
+// ---------------------------------------------------------------------------
+export const RESULTS_DIR = __ENV.RESULTS_DIR || 'benchmarks/v0-baseline/results';
+
+// ---------------------------------------------------------------------------
 // Thresholds.
 //
 // These are deliberately LOOSE for the v0 baseline. The point of Phase 0 is to

@@ -4,6 +4,31 @@ Audit date: 2026-09-01. Baseline commit: `c1c0707`.
 
 Every finding below cites a file and line, or a command whose output I checked. Claims I could not verify are marked as such.
 
+> **Amendment, 2026-09-04 — Phase 1/Phase 3 rescope.**
+>
+> The audit body below is left as written; it is a point-in-time document and its
+> value is that it records what the code looked like before anything moved. Two
+> things in the **Phasing** section are now out of date, and the live status is in
+> `PROJECT_LIFECYCLE.md`:
+>
+> 1. **Phase 1 absorbed two Phase 3 items** — sizing the pg pool (F-15) and
+>    paginating the users list. Phase 0's measurements put both ahead of most of the
+>    correctness work by cost, and the ordering came from the data rather than from
+>    this plan. Phase 3 correspondingly narrows to the new write-heavy entity, the
+>    1M-row seeder, keyset pagination, composite indexes and the
+>    transaction/isolation work — everything that needs volume to be demonstrable.
+> 2. **Arcjet was removed in Phase 1, not Phase 4**, and replaced with an
+>    in-process limiter rather than left absent. Phase 4 swaps the store for Redis
+>    and proves the single-node version wrong across three replicas. Reasoning in
+>    [ADR 0003](docs/adr/0003-in-process-limiter-then-redis.md).
+>
+> Two claims in Part 1 also turned out to be understated once measured, and are
+> corrected in the lifecycle rather than rewritten here: the rate limiting was not
+> merely "not distributed", it was **enforcing nothing at all** (F-07, F-16), and
+> `scripts/dev.sh` did not merely race the database container — it pointed at a
+> hostname that does not resolve from the host, so it could not have worked in any
+> order (F-23).
+
 ---
 
 ## Part 1 — What the codebase actually is today

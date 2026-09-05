@@ -38,7 +38,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.bench}
       POSTGRES_DB: ${POSTGRES_DB:-benchdb}
       # Deterministic planner behaviour across runs.
-      PGOPTIONS: "-c jit=off"
+      PGOPTIONS: '-c jit=off'
     command:
       - postgres
       - -c
@@ -60,12 +60,12 @@ services:
       - -c
       - track_io_timing=on
     ports:
-      - "${PG_HOST_PORT:-5433}:5432"
+      - '${PG_HOST_PORT:-5433}:5432'
     volumes:
       - bench-pgdata:/var/lib/postgresql/data
     networks: [bench]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bench} -d ${POSTGRES_DB:-benchdb}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-bench} -d ${POSTGRES_DB:-benchdb}']
       interval: 5s
       timeout: 3s
       retries: 12
@@ -73,7 +73,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${PG_CPUS:-1.0}"
+          cpus: '${PG_CPUS:-1.0}'
           memory: ${PG_MEMORY:-1G}
 
   app:
@@ -91,26 +91,40 @@ services:
       - .env.bench
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-bench}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-benchdb}
-      # Declared here (not only in env_file) so the runner can flip it per run via
-      # the shell environment. Values in `environment:` override env_file, and
-      # `docker compose up` has no -e flag — this is the only way to vary it
-      # without editing .env.bench between runs.
-      BENCH_BYPASS_SECURITY: ${BENCH_BYPASS_SECURITY:-0}
+      # BENCH_BYPASS_SECURITY was declared here in Phase 0 so run-baseline.sh could
+      # vary it per run and record an as-built variant alongside a bypassed one.
+      # Both the flag and the Arcjet middleware it disabled are gone in Phase 1, so
+      # there is one variant per level now and nothing to override between runs.
+      #
+      # What run-phase.sh reads back out of this container instead is
+      # RATE_LIMIT_AUTH_MAX / RATE_LIMIT_ADMIN_MAX, because the limiter is in the
+      # request path on every run and a production-shaped limit would reject the
+      # whole matrix from one source IP. Those come from .env.bench via env_file.
     # Hot-reload is off: --watch adds an fs watcher and restart risk mid-run.
-    command: ["node", "src/index.js"]
+    command: ['node', 'src/index.js']
     ports:
-      - "${APP_HOST_PORT:-3000}:3000"
+      - '${APP_HOST_PORT:-3000}:3000'
     networks: [bench]
     depends_on:
       postgres:
         condition: service_healthy
+    # tini is PID 1, so SIGTERM reaches node and src/server.js drains. Must exceed
+    # SHUTDOWN_READINESS_DELAY_MS + SHUTDOWN_DRAIN_TIMEOUT_MS, which .env.bench keeps
+    # short precisely so recreating this container between runs is not dead time.
+    stop_grace_period: 15s
     deploy:
       resources:
         limits:
-          cpus: "${APP_CPUS:-1.0}"
+          cpus: '${APP_CPUS:-1.0}'
           memory: ${APP_MEMORY:-512M}
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -122,13 +136,13 @@ services:
   sampler:
     image: alpine:3.20
     container_name: acq-bench-sampler
-    profiles: ["observe"]
+    profiles: ['observe']
     volumes:
       - ./benchmarks:/out
     command:
       - sh
       - -c
-      - "while true; do date -u +%FT%TZ >> /out/.sampler.log; sleep 1; done"
+      - 'while true; do date -u +%FT%TZ >> /out/.sampler.log; sleep 1; done'
     networks: [bench]
 
 networks:

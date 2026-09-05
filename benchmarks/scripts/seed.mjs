@@ -35,9 +35,7 @@ const PASSWORD = process.env.SEED_PASSWORD || 'BenchPassword123!';
 const BCRYPT_ROUNDS = Number(process.env.SEED_BCRYPT_ROUNDS || 10);
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'bench_admin@example.test';
 
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  'postgresql://bench:bench@localhost:5433/benchdb';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://bench:bench@localhost:5433/benchdb';
 
 function log(msg) {
   process.stdout.write(`[seed] ${msg}\n`);

@@ -13,7 +13,12 @@ jobs:
     env:
       NODE_ENV: test
       NODE_OPTIONS: --experimental-vm-modules
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # No DATABASE_URL. v0 wired `secrets.DATABASE_URL` in here, which implied the
+      # suite talked to a real database — it never did, and a fork without that
+      # secret would have run with an empty string and been none the wiser.
+      # Testcontainers-backed integration tests arrive in Phase 8; until then this
+      # job is deliberately dependency-free, which is why it takes seconds.
+      LOG_LEVEL: error
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,96 +26,43 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          # Matches the Dockerfile's node:22-alpine.
+          node-version: '22.x'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
+      # Coverage is opt-in now (jest.config.mjs sets collectCoverage: false), so it
+      # is requested explicitly here rather than being written on every local run
+      # into a directory that used to be tracked in git (finding F-01).
       - name: Run tests
-        run: npm test
+        run: npm test -- --coverage
 
       - name: Upload coverage reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
           path: coverage/
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Generate test summary
         if: always()
         run: |
-          if [ -f coverage/coverage-final.json ]; then
-            echo "## Test Coverage Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            node -e "
-              const fs = require('fs');
-              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-final.json', 'utf8'));
-              let totalStatements = 0, coveredStatements = 0;
-              let totalBranches = 0, coveredBranches = 0;
-              let totalFunctions = 0, coveredFunctions = 0;
-              let totalLines = 0, coveredLines = 0;
-              
-              Object.values(coverage).forEach(file => {
-                if (file.s) {
-                  Object.values(file.s).forEach(count => {
-                    totalStatements++;
-                    if (count > 0) coveredStatements++;
-                  });
-                }
-                if (file.b) {
-                  Object.values(file.b).forEach(branches => {
-                    branches.forEach(count => {
-                      totalBranches++;
-                      if (count > 0) coveredBranches++;
-                    });
-                  });
-                }
-                if (file.f) {
-                  Object.values(file.f).forEach(count => {
-                    totalFunctions++;
-                    if (count > 0) coveredFunctions++;
-                  });
-                }
-                if (file.l) {
-                  Object.values(file.l).forEach(count => {
-                    totalLines++;
-                    if (count > 0) coveredLines++;
-                  });
-                }
-              });
-              
-              const pct = (covered, total) => total > 0 ? ((covered / total) * 100).toFixed(2) : 'N/A';
-              
-              console.log('| Metric | Coverage |');
-              console.log('|--------|----------|');
-              console.log(\`| Statements | \${pct(coveredStatements, totalStatements)}% (\${coveredStatements}/\${totalStatements}) |\`);
-              console.log(\`| Branches | \${pct(coveredBranches, totalBranches)}% (\${coveredBranches}/\${totalBranches}) |\`);
-              console.log(\`| Functions | \${pct(coveredFunctions, totalFunctions)}% (\${coveredFunctions}/\${totalFunctions}) |\`);
-              console.log(\`| Lines | \${pct(coveredLines, totalLines)}% (\${coveredLines}/\${totalLines}) |\`);
-            " >> $GITHUB_STEP_SUMMARY
+          if [ -f coverage/coverage-summary.json ] || [ -f coverage/coverage-final.json ]; then
+            {
+              echo "## Test coverage"
+              echo ""
+              echo "Reported, not enforced. Thresholds land in Phase 8 with the"
+              echo "Testcontainers suite, where the number will mean something —"
+              echo "a threshold pinned to today's figure is a ratchet, not a standard."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "## Test Results" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "No coverage report found." >> $GITHUB_STEP_SUMMARY
+            {
+              echo "## Test results"
+              echo ""
+              echo "No coverage report was produced."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
-
-      - name: Annotate test failures
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            if (fs.existsSync('coverage/coverage-final.json')) {
-              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-final.json', 'utf8'));
-              // Find files with low coverage
-              Object.entries(coverage).forEach(([file, data]) => {
-                if (data.l) {
-                  Object.entries(data.l).forEach(([line, count]) => {
-                    if (count === 0) {
-                      core.warning(`Line ${line} in ${file} is not covered`, {file, line: parseInt(line)});
-                    }
-                  });
-                }
-              });
-            }

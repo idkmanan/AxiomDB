@@ -26,7 +26,12 @@ coverage/** linguist-vendored
 # but it is machine-written and should be collapsed in diffs rather than reviewed
 # line by line. SUMMARY.md and failure-attribution.txt are deliberately NOT
 # listed here — those are the human-facing artifacts.
-benchmarks/v0-baseline/results/** linguist-generated
+#
+# The glob covers every phase directory rather than naming them one at a time, so
+# a new phase's results are collapsed without anyone remembering to add a line.
+# `.gitkeep.md` is re-included because it is written by hand.
+benchmarks/*/results/** linguist-generated
+benchmarks/*/results/.gitkeep.md -linguist-generated
 
 # drizzle-kit writes these; they are not hand-authored SQL.
 drizzle/** linguist-generated

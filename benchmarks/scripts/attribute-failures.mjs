@@ -15,14 +15,26 @@
 // k6 error codes seen in v0 (docs: grafana.com/docs/k6/latest/javascript-api/error-codes):
 //   1050 — request timeout (the CLIENT stopped waiting)
 //   1220 — read: connection reset by peer (the SERVER sent an RST)
+//
+// Phase 1 made the directory a parameter so a second phase can be attributed with
+// the same script:
+//   node benchmarks/scripts/attribute-failures.mjs --dir benchmarks/v1-correctness/results
 // ---------------------------------------------------------------------------
 import { readdirSync, existsSync, createReadStream, writeFileSync } from 'node:fs';
 import { createGunzip } from 'node:zlib';
 import { createInterface } from 'node:readline';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
-const DIR = 'benchmarks/v0-baseline/results';
-const OUT = 'benchmarks/v0-baseline/failure-attribution.txt';
+const args = process.argv.slice(2);
+const getArg = (n, d) => {
+  const i = args.indexOf(`--${n}`);
+  return i !== -1 && args[i + 1] ? args[i + 1] : d;
+};
+
+const DIR = getArg('dir', 'benchmarks/v0-baseline/results');
+// Defaults alongside the results rather than to a fixed path, so `--dir` alone is
+// enough and the artifact cannot silently overwrite another phase's.
+const OUT = getArg('out', join(dirname(DIR), 'failure-attribution.txt'));
 
 const CODE_NAMES = {
   1050: 'request timeout (client stopped waiting)',
@@ -42,7 +54,9 @@ const files = readdirSync(DIR)
 
 if (files.length === 0) {
   console.error(`no *.samples.json.gz in ${DIR}`);
-  console.error('these are written by `k6 run --out json=…` in run-baseline.sh and are gitignored;');
+  console.error(
+    'these are written by `k6 run --out json=…` in run-baseline.sh and are gitignored;'
+  );
   console.error('re-run the matrix if you need to regenerate this artifact.');
   process.exit(1);
 }

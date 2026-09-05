@@ -1,661 +1,387 @@
-# Acquisitions API - Docker Development & Production Guide
+# Acquisitions
 
-This document explains how to run the Acquisitions Express.js API with Docker in both development (using Neon Local) and production (using Neon Cloud) environments.
+A secure, benchmarked Express + Drizzle + Postgres backend template. It is a
+working JSON API — cookie session auth, RBAC, rate limiting, pagination,
+graceful shutdown — and it is being rebuilt in phases, where each phase fixes
+one class of problem and then has to produce a measured claim before it counts
+as finished. The running record of what changed, why, and what it cost is
+[PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md); the method behind every number is
+[BENCHMARKING.md](BENCHMARKING.md).
 
----
+Phase 0 measured the unmodified application. Phase 1 fixed what those
+measurements pointed at, in the order the measurements ranked them rather than
+the order the defects were noticed. Phase 1 is code complete and its benchmark
+has not run yet, so nothing here quotes a Phase 1 performance number — the only
+figures below are labelled v0.
 
-## Quick Start
+## Status
 
-### Development (with Neon Local)
-```bash
-# Start everything (app + Neon Local Postgres)
-docker-compose -f docker-compose.dev.yml up --build
+| Phase | Status | Deliverable |
+|---|---|---|
+| 0 — Baseline measurement | Complete; F-01..F-20 recorded | Reproducible harness + v0 numbers |
+| 1 — Correctness & security | Code complete, v1 matrix pending | Defect-free baseline + measured v0→v1 delta |
+| 2 — TypeScript migration | Not started | Strict-typed source |
+| 3 — Postgres foundation | Not started (rescoped) | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
+| 4 — Redis: limits & tokens | Not started | Distributed rate limiting, refresh rotation |
+| 5 — Kafka & outbox | Not started | Async pipeline, no dual-write loss |
+| 6 — Observability | Not started | Cross-hop trace |
+| 7 — Kubernetes & scale-out | Not started | 3-replica benchmark + failure drills |
+| 8 — Hardening & docs | Not started | Integration tests, ADRs, BENCHMARKS.md |
 
-# Or run in background
-docker-compose -f docker-compose.dev.yml up -d --build
+## Quick start
 
-# View logs
-docker-compose -f docker-compose.dev.yml logs -f app
-
-# Stop and remove volumes (clean slate)
-docker-compose -f docker-compose.dev.yml down -v
-```
-
-### Production (with Neon Cloud)
-```bash
-# Set required environment variables first (see Production Setup)
-export DATABASE_URL="postgres://user:pass@ep-xxx.neon.tech/db?sslmode=require"
-export JWT_SECRET="$(openssl rand -base64 32)"
-export COOKIE_SECRET="$(openssl rand -base64 32)"
-
-# Build and start
-docker-compose -f docker-compose.prod.yml up --build -d
-
-# View logs
-docker-compose -f docker-compose.prod.yml logs -f app
-```
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              DEVELOPMENT                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────────┐     ┌──────────────┐                                     │
-│  │   Host       │     │   Docker     │                                     │
-│  │   Machine    │     │   Network    │                                     │
-│  │              │     │              │                                     │
-│  │  localhost:3000 ──────►  app:3000  │                                     │
-│  │  localhost:5432 ──────►neon-local:5432                                │
-│  │              │     │              │                                     │
-│  └──────────────┘     └──────────────┘                                     │
-│         │                     │                                            │
-│         ▼                     ▼                                            │
-│  ┌──────────────────────────────────────────┐                              │
-│  │         docker-compose.dev.yml           │                              │
-│  │  ┌─────────────┐    ┌─────────────────┐  │                              │
-│  │  │    app      │───►│   neon-local    │  │                              │
-│  │  │ (Node.js)   │    │  (Neon Local)   │  │                              │
-│  │  │             │    │  - Auto branches│  │                              │
-│  │  │ --watch     │    │  - Ephemeral DB │  │                              │
-│  │  └─────────────┘    └─────────────────┘  │                              │
-│  └──────────────────────────────────────────┘                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              PRODUCTION                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────────┐     ┌──────────────┐                                     │
-│  │   Internet   │     │   Docker     │                                     │
-│  │              │     │   Network    │                                     │
-│  │  HTTPS:443   │     │              │                                     │
-│  │     │        │     │   app:3000   │                                     │
-│  │     ▼        │     │       │      │                                     │
-│  │ ┌────────┐   │     │       ▼      │                                     │
-│  │ │ Reverse│   │     │ ┌─────────┐  │                                     │
-│  │ │ Proxy  │───┼─────►│ │  app    │  │                                     │
-│  │ │(nginx/ │   │     │ │ (Node.js)│  │                                     │
-│  │ │Traefik)│   │     │ └────┬────┘  │                                     │
-│  │ └────────┘   │     │      │       │                                     │
-│  └──────│───────┘     └──────│───────┘                                     │
-│         │                    │                                             │
-│         ▼                    ▼                                             │
-│  ┌──────────────────────────────────────────┐                              │
-│  │         docker-compose.prod.yml          │                              │
-│  │  ┌─────────────┐                         │                              │
-│  │  │    app      │──────► Neon Cloud DB   │                              │
-│  │  │ (Node.js)   │    (DATABASE_URL)      │                              │
-│  │  └─────────────┘                         │                              │
-│  └──────────────────────────────────────────┘                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Development Environment
-
-### Prerequisites
-- Docker Desktop / Docker Engine 24+
-- Docker Compose v2+
-- (Optional) Neon API Key for branch management
-
-### Files
-| File | Purpose |
-|------|---------|
-| `Dockerfile` | Multi-stage build (base, deps, dev-deps, builder, development, production) |
-| `docker-compose.dev.yml` | Runs app + Neon Local |
-| `.env.development` | Development environment variables |
-| `.dockerignore` | Excludes unnecessary files from build context |
-
-### Neon Local Details
-
-Neon Local (`neondatabase/neon-local`) provides:
-- **Ephemeral branches**: Automatic branch creation for each dev session
-- **PostgreSQL compatible**: Connects via standard `postgres://` URL
-- **No cloud dependency**: Runs entirely locally
-- **Data persistence**: Optional via Docker volume
-
-**Connection String (inside Docker network):**
-```
-postgres://neon:npg@neon-local:5432/neondb?sslmode=disable
-```
-
-**Connection String (from host machine):**
-```
-postgres://neon:npg@localhost:5432/neondb?sslmode=disable
-```
-
-### Starting Development
+Docker with Compose V2 (the `docker compose` plugin, not `docker-compose`) and
+Node 22+.
 
 ```bash
-# 1. Build and start all services
-docker-compose -f docker-compose.dev.yml up --build
-
-# 2. Verify services are healthy
-docker-compose -f docker-compose.dev.yml ps
-
-# Expected output:
-# NAME                    STATUS              PORTS
-# acquisitions-neon-local Up (healthy)        5432/tcp, 5433/tcp
-# acquisitions-app-dev    Up                  0.0.0.0:3000->3000/tcp
-
-# 3. Test the API
-curl http://localhost:3000/health
-# {"status":"Ok","timestamp":"...","uptime":...}
-
-curl http://localhost:3000/api/auth/sign-up \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Test","email":"test@example.com","password":"password123"}'
+cp .env.example .env.development
+npm run dev:docker
 ```
 
-### Database Access
+`dev:docker` runs `bash scripts/dev.sh`, which does four things in an order that
+is the fix rather than a formality:
+
+1. starts only the `postgres` service from `docker-compose.dev.yml`
+2. polls that container's healthcheck until it reports healthy — not `sleep 5`,
+   which is simultaneously too long on a fast machine and too short on a cold
+   one, and when it is too short the failure presents as a migration bug
+3. applies migrations in a one-shot container **inside** the compose network
+4. starts the API attached, so Ctrl-C sends SIGINT down the same drain path as
+   SIGTERM and the shutdown code is exercised every time you stop the server
+
+Step 3 is finding F-23. v0 ran `npm run db:migrate` from the host at a point in
+the script where the database container did not exist yet, and the URL it would
+have used names `postgres` — a compose service hostname that does not resolve on
+the host at any point in the sequence. Running migrations inside the network is
+also the shape Phase 7 uses (an init container), so it is one mechanism rather
+than two.
+
+The API is at http://localhost:3000. Postgres is published on `PG_HOST_PORT`
+(5432 by default) using `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`
+from `.env.development`, which default to `neon` / `npg` / `neondb`. Containers
+are `acquisitions-app-dev` and `acquisitions-postgres-dev`; tear the stack down
+with `docker compose -f docker-compose.dev.yml down -v`.
+
+## API
+
+Session auth is an httpOnly cookie named `token`, set by sign-up and sign-in.
+
+| Method | Path | Auth | Rate limit |
+|---|---|---|---|
+| GET | `/` | none | none |
+| GET | `/health` | none | none, deliberately |
+| GET | `/ready` | none | none, deliberately |
+| GET | `/api` | none | none |
+| POST | `/api/auth/sign-up` | none | `auth` — 10/min per IP, fails closed |
+| POST | `/api/auth/sign-in` | none | `auth` — 10/min per IP, fails closed |
+| POST | `/api/auth/sign-out` | none | none |
+| GET | `/api/users` | session + role `admin` | `api` — per user id, 100/min (`user`) or 300/min (`admin`), fails open |
+| GET | `/api/users/:id` | session | `api`, as above |
+| PUT | `/api/users/:id` | session; self, or `admin` for anyone | `api`, as above |
+| DELETE | `/api/users/:id` | session; self, or `admin` for anyone | `api`, as above |
+
+`/health` is liveness and answers from in-process state only. `/ready` is
+readiness and does a real `SELECT 1` round trip. Neither is rate limited, and
+that is a decision rather than an oversight: a limiter in front of a health
+check means a saturated service also fails its probes and gets restarted, which
+turns a load problem into an outage. v0 mounted its limiter app-wide and
+measured 404.69 ms p95 on `/health`, an endpoint that does no I/O, against
+4.19 ms with the middleware bypassed (findings F-07, F-16).
+
+On `/api/users*` the router mounts `authenticate` and then the limiter, in that
+order, which is also a fix: v0 mounted its limiter at app level ahead of every
+route, so `req.user` was undefined when the role was read and every caller —
+admins included — silently received the guest bucket. The role switch in that
+file never took a branch other than its default.
+
+`POST /api/auth/sign-out` clears the cookie and does nothing else. The token
+stays valid until it expires; there is no denylist yet.
+
+### Listing users
+
+`limit` defaults to `PAGINATION_DEFAULT_LIMIT` and is capped at
+`PAGINATION_MAX_LIMIT`; `offset` defaults to `0`. The query schema is strict, so
+an unrecognised parameter is a 400 naming it rather than a silently ignored one.
+
+```
+GET /api/users?limit=2&offset=10
+Cookie: token=<admin session>
+```
+
+```json
+{
+  "message": "Successfully retrieved users",
+  "users": [
+    { "id": 11, "email": "a@b.test", "name": "A", "role": "user",
+      "created_at": "2026-09-01T10:00:00.000Z",
+      "updated_at": "2026-09-01T10:00:00.000Z" },
+    { "id": 12, "email": "c@d.test", "name": "C", "role": "user",
+      "created_at": "2026-09-01T10:00:01.000Z",
+      "updated_at": "2026-09-01T10:00:01.000Z" }
+  ],
+  "pagination": {
+    "limit": 2,
+    "offset": 10,
+    "total": 137,
+    "returned": 2,
+    "hasMore": true
+  },
+  "count": 2
+}
+```
+
+`count` is the number of rows in this response. It meant the same thing in v0,
+where it happened to equal the table size because the query had no `LIMIT`;
+`pagination.total` is the field that now carries that meaning. `?limit=1000000`
+is rejected with `limit may not exceed 100` — without the cap, pagination that
+looks present hands the caller control of the endpoint's cost.
+
+### Being rate limited
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+RateLimit-Limit: 10
+RateLimit-Remaining: 0
+RateLimit-Reset: 60
+
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit of 10 requests per 60s exceeded.",
+  "retryAfter": 60
+}
+```
+
+429, not v0's 403: 403 says "you may never do this", 429 says "not yet" and is
+the only one of the two that carries a documented retry contract (F-08). The
+`RateLimit-*` field names follow draft-ietf-httpapi-ratelimit-headers.
+
+## Security posture
+
+Both halves of this are in one table on purpose. What is missing is as much a
+part of the current state as what is present, and each gap is the exhibit for
+the phase that closes it.
+
+| Control | State | Detail |
+|---|---|---|
+| Input validation | Enforced | Zod `strictObject` on every request schema, so an unknown key is a logged 400 naming it, not a silent strip |
+| Privilege at signup | Enforced | `role` is absent from `signupSchema` and `createUser` accepts no role argument — two independent gates. The v0 schema had `role: z.enum(['user','admin']).default('user')` and the controller destructured it, so `{"role":"admin"}` returned an admin JWT to an anonymous caller |
+| RBAC | Enforced | `authorize('admin')` on `GET /api/users`; ownership checks on update and delete; role changes rejected for non-admins on `PUT` |
+| Rate limiting | Enforced | Sliding-window log, per-route policy, mounted after `authenticate`; auth endpoints fail **closed**, reads fail **open**, and either outcome is logged and counted ([ADR 0003](docs/adr/0003-in-process-limiter-then-redis.md)) |
+| Session cookie | Enforced | `httpOnly`, `sameSite=strict`, `secure` in production, and `maxAge` derived from the same `SESSION_TTL_MS` the JWT is signed with. v0 had 15 minutes on the cookie and `'1d'` on the token |
+| Error responses | Enforced | No stack trace on the wire in any status class; a 5xx body is `{error, requestId}` and nothing else, while the full stack and cause go to the log |
+| Startup secrets | Enforced | `JWT_SECRET` is required and must be ≥32 chars in production or the process throws. v0 fell back to a literal string committed in this repository, so a deploy that forgot the variable signed forgeable admin tokens and looked healthy (F-25) |
+| Transport headers | Enforced | helmet, `x-powered-by` disabled, 100 kb body limit, request id on every response |
+| Refresh tokens | Gap — Phase 4 | There are none, so a session genuinely ends 15 minutes after sign-in |
+| Token revocation | Gap — Phase 4 | Sign-out clears the cookie; the bearer token remains valid until expiry. A 15-minute window is a mitigation, not a fix |
+| Distributed limits | Gap — Phase 4 | The limiter's state is a per-process `Map`, so N replicas allow N× the configured limit |
+| Sign-in timing oracle | Gap — Phase 4 | With no user found, no bcrypt compare runs, so an unknown address answers measurably sooner than a wrong password |
+| Signup race | Gap — Phase 3 | Check-then-insert with no transaction. SQLSTATE 23505 is translated so the loser gets the intended 409 instead of a 500, but the race is still there |
+| Lost update | Gap — Phase 3 | `updateUser` and `deleteUser` read, decide, then write with no transaction and no version column |
+| Proxy trust | Gap — Phase 7 | `TRUST_PROXY` is unset, so `req.ip` is the socket address and `X-Forwarded-For` is ignored |
+
+The distributed-limit gap is shipped knowingly. "I replaced a `Map` with Redis"
+is a framework swap; "here is the limiter holding at one replica, allowing 3×
+the limit across three, and holding again once the state moved to Redis behind
+an atomic Lua script" is a measured correctness claim, and it needs the broken
+version to exist first.
+
+## Environment variables
+
+`.env.example` is the template and the source of truth; copy it, do not edit it
+in place. `.gitignore` excludes `.env.*` and re-includes `.env.example` and
+`.env.bench.example` by negation, so a real secret cannot be committed by
+accident while the template a forker needs stays available (F-03). Integer
+variables throw at startup on a non-integer or out-of-range value rather than
+falling back to the default — a typo'd limit should not look like a deliberate
+one.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | Listen port |
+| `NODE_ENV` | `development` | `development` selects the node-postgres pool in `src/config/database.js`. Any other value routes through the Neon HTTP driver, which has no pooling, no transactions and no isolation levels; Phase 3 removes the branch |
+| `LOG_LEVEL` | `info` | winston level. File transports are omitted entirely when `NODE_ENV=test` (F-27) |
+| `DATABASE_URL` | empty | Postgres URL. Can stay empty for `npm run dev:docker`: `docker-compose.dev.yml` sets it in the app service's `environment:` block, which overrides `env_file`. Required for production and for a host-side `npm run db:migrate` |
+| `JWT_SECRET` | none | Required, ≥32 chars in production or startup throws. `openssl rand -base64 32` |
+| `COOKIE_SECRET` | — | **Removed in Phase 1.** Required by three templates and by `scripts/prod.sh` while nothing in `src/` read it; no cookie is signed and none needs to be (F-30) |
+| `SESSION_TTL_MS` | `900000` | One value with two consumers: the JWT `expiresIn` and the cookie `maxAge` |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Window shared by every policy, so `RateLimit-Reset` means one thing everywhere |
+| `RATE_LIMIT_AUTH_MAX` | `10` | Per IP on sign-up and sign-in. Tight because bcrypt at cost 10 measured 54.8 ms per compare (F-05), so ~18 unthrottled requests/s saturates a core |
+| `RATE_LIMIT_USER_MAX` | `100` | Per user id for role `user`, and the fallback for any role not in the map |
+| `RATE_LIMIT_ADMIN_MAX` | `300` | Per user id for role `admin` |
+| `PG_POOL_MAX` | `20` | node-postgres defaults to 10, against a benchmark server started with `max_connections=200` (F-15) |
+| `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | The driver default of `0` means "queue forever", not "no timeout" |
+| `PG_POOL_IDLE_TIMEOUT_MS` | `30000` | Idle client eviction |
+| `PAGINATION_DEFAULT_LIMIT` | `20` | `limit` when the caller omits it |
+| `PAGINATION_MAX_LIMIT` | `100` | Hard cap on `limit` |
+| `SHUTDOWN_READINESS_DELAY_MS` | `2000`, `0` under `NODE_ENV=test` | Pause between failing `/ready` and closing the listener, so the load balancer stops routing first |
+| `SHUTDOWN_DRAIN_TIMEOUT_MS` | `10000` | In-flight drain window. Keep the sum of these two below the orchestrator's grace period |
+| `TRUST_PROXY` | **unset, deliberately** | With `trust proxy` on and no trusted proxy actually in front, any client can spoof `X-Forwarded-For` and mint itself unlimited rate-limit buckets — the limiter becomes decorative while still looking present. Set it in Phase 7, once a known ingress terminates traffic |
+| `EXPOSE_ERROR_DETAILS` | `false` | Adds name/code/stack to error bodies. Ignored when `NODE_ENV=production`; it cannot be switched on there |
+| `CORS_ORIGIN` | `http://localhost:3000` | Comma-separated allow-list. Now actually read: v0 documented it in three templates while `src/app.js` called `cors()` with no options, so the effective policy was `Access-Control-Allow-Origin: *` (F-29). `credentials` is enabled only for an explicit list — a wildcard plus credentials is rejected by browsers |
+
+`src/config/env.js` also reads `PG_POOL_MAX_LIFETIME_S` (default `1800`), which
+`.env.example` does not list. `docker-compose.dev.yml` additionally reads
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `PG_HOST_PORT` and
+`APP_HOST_PORT` from the same file, each with a default.
+
+## Layout
+
+```
+src/
+  app.js            Express app: middleware order, /health, /ready, routers
+  server.js         listen + the SIGTERM/SIGINT drain sequence
+  index.js          entrypoint; loads dotenv, then server.js
+  config/           env.js (validated config), database.js (pool), logger.js
+  controllers/      HTTP shape: parse, authorize, delegate, respond
+  services/         data access; throws AppError with an intended status
+  models/           Drizzle table definitions
+  middleware/       auth, rate-limit, error, request-id, request-log
+  rate-limit/       policy.js (limits, keying, failure policy) + sliding-window.js
+  routes/           routers, and the mount order that makes the limiter work
+  utils/            jwt.js, cookies.js, format.js
+  validations/      Zod schemas, all strict
+```
+
+Imports use the Node subpath map in `package.json` rather than relative paths:
+
+```
+#src/*  #config/*  #controllers/*  #middleware/*  #models/*
+#rate-limit/*  #routes/*  #services/*  #utils/*  #validations/*
+```
+
+So `import config from '#config/env.js'` resolves to `./src/config/env.js`.
+
+## Scripts
+
+| Script | Purpose |
+|---|---|
+| `npm run dev` | Run on the host with `node --watch` |
+| `npm start` | Run on the host, no watcher |
+| `npm run dev:docker` | `bash ./scripts/dev.sh` — the dev stack, in order |
+| `npm run prod:docker` | `bash ./scripts/prod.sh` — the production stack |
+| `npm test` | jest under `NODE_ENV=test`, no database needed |
+| `npm run lint` / `lint:fix` | eslint; blocking in CI |
+| `npm run format` / `format:check` | prettier; also blocking in CI |
+| `npm run db:generate` | Generate a migration from the models |
+| `npm run db:migrate` | Apply migrations. `drizzle.config.js` loads plain `dotenv/config`, so from the host this reads `.env`, not `.env.development` (F-23) |
+| `npm run db:studio` | Drizzle Studio |
+| `npm run bench:up` / `bench:down` | Resource-pinned bench stack from `docker-compose.bench.yml` |
+| `npm run bench:seed` | 1000 users + 1 admin, idempotent |
+| `npm run bench:smoke` | 10 VUs for 20s against `realistic.js` — checks the harness |
+| `npm run bench:baseline` | The full matrix with `PHASE=v0` |
+| `npm run bench:v1` | The full matrix with `PHASE=v1` (~50 min) |
+| `npm run bench:report` / `bench:report:v1` | Generate `SUMMARY.md`; the v1 form adds the v0→v1 comparison |
+| `npm run bench:attribute` / `bench:attribute:v1` | Distil per-request streams into a committed failure-attribution artifact |
+
+## Testing
 
 ```bash
-# Connect via psql (from host)
-psql "postgres://neon:npg@localhost:5432/neondb?sslmode=disable"
-
-# Or from inside app container
-docker-compose -f docker-compose.dev.yml exec app \
-  psql "postgres://neon:npg@neon-local:5432/neondb?sslmode=disable"
-
-# Run Drizzle migrations
-docker-compose -f docker-compose.dev.yml exec app npm run db:migrate
-
-# Open Drizzle Studio
-docker-compose -f docker-compose.dev.yml exec app npm run db:studio
-# Then open http://localhost:4983
+npm test
 ```
 
-### Hot Reload
+68 tests across 6 suites, all passing, and no database or Docker required —
+`NODE_ENV=test` keeps the app off the pg pool and drops winston's file
+transports, which were holding descriptors open and producing jest's "did not
+exit one second after the test run" warning (F-27).
 
-The development container uses Node.js `--watch` flag (Node 18.11+). Changes to source files automatically restart the server.
+| Suite | Covers |
+|---|---|
+| `tests/app.test.js` | `/health`, `/ready`, `/api`, and an unknown route answering 404 with a request id |
+| `tests/auth-hardening.test.js` | The escalation attempt returning 400 with no `Set-Cookie`, `createUser` ignoring a role handed to it, cookie `maxAge` equalling the JWT expiry, and the production secret rule throwing |
+| `tests/error-handling.test.js` | `classify()`'s full mapping, and that no error body carries a stack frame or a connection string |
+| `tests/logging.test.js` | The **formatted output line**, plus a deliberate reproduction of the v0 `combine((a, b, c))` defect. A mock-based assertion on `logger.info` passes identically with the bug present and absent, and no lint rule catches it either (F-22) |
+| `tests/rate-limit.test.js` | Window behaviour, the 429 status/header contract, keying by user id versus IP, and the fail-open/fail-closed branches driven by an injected throwing store |
+| `tests/users-pagination.test.js` | Query defaults and the cap, id validation, and that the service applies `limit`/`offset`/`ORDER BY` and never selects the password column |
+
+## Benchmarks
+
+Full method, prerequisites and honesty rules:
+[BENCHMARKING.md](BENCHMARKING.md).
 
 ```bash
-# View live logs
-docker-compose -f docker-compose.dev.yml logs -f app
+cp .env.bench.example .env.bench
+npm run bench:v1
+npm run bench:report:v1
 ```
 
-### Environment Variables (Development)
+The one thing to get right before reading any result: **there are two
+instruments and they are not interchangeable.**
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `development` | Environment mode |
-| `PORT` | `3000` | Server port |
-| `DATABASE_URL` | `postgres://neon:npg@neon-local:5432/neondb?sslmode=disable` | Neon Local connection |
-| `JWT_SECRET` | `dev-secret...` | JWT signing key |
-| `JWT_EXPIRES_IN` | `15m` | Token expiration |
-| `LOG_LEVEL` | `debug` | Winston log level |
+- `benchmarks/k6/baseline.js` is **frozen**. Its mix (25% authentication), load
+  shape, thresholds and tags must not change, because a comparison is only a
+  comparison while the instrument is constant. Its rows are the only ones
+  comparable across phases.
+- `benchmarks/k6/realistic.js` exists because a 25%-auth mix describes no real
+  workload — bcrypt made up 37% of the per-iteration CPU budget in the v0 matrix
+  and depressed every throughput number in it. It answers "what is capacity",
+  and its series starts at v1 (F-17).
 
-Override via `.env.local` (gitignored):
-```bash
-cp .env.development .env.local
-# Edit .env.local with your values
-```
+`report.mjs` refuses to pair rows from different instruments, and refuses to
+compute a delta for any concurrency level that was censored on either side. The
+only numbers this repository currently has are the v0 baseline in
+`benchmarks/v0-baseline/SUMMARY.md`; `benchmarks/v1-correctness/results/` is
+empty by design until the v1 matrix runs on a Docker host.
 
----
+## Deployment
 
-## Production Environment
+The image is a multi-stage build on `node:22-alpine`.
 
-### Prerequisites
-- Neon Cloud account with project created
-- Domain name with DNS configured
-- SSL certificates (Let's Encrypt, Cloudflare, or managed by platform)
-- Container registry (Docker Hub, GHCR, ECR, etc.) or direct build on server
+| Stage | From | Purpose |
+|---|---|---|
+| `base` | `node:22-alpine` | `tini`, `dumb-init`, `/app`, and the non-root `nodejs` user (uid/gid 1001) |
+| `deps` | `base` | `npm ci --only=production --ignore-scripts` |
+| `dev-deps` | `base` | Full `npm ci --ignore-scripts` |
+| `builder` | `dev-deps` | Placeholder for a build step; used from Phase 2 |
+| `development` | `dev-deps` | `node --watch src/index.js` |
+| `production` | `base` | Prod deps only, `npm start`, `HEALTHCHECK` against `/health` |
 
-### Required Secrets
-
-**NEVER commit these to git.** Use your platform's secret management:
-
-| Secret | Description | Example |
-|--------|-------------|---------|
-| `DATABASE_URL` | Neon Cloud connection string | `postgres://user:pass@ep-xxx.neon.tech/db?sslmode=require` |
-| `JWT_SECRET` | Min 32 chars, base64 | `openssl rand -base64 32` |
-| `COOKIE_SECRET` | Random string | `openssl rand -base64 32` |
-| `ARCJET_KEY` | (Optional) Arcjet API key | `ajkey_...` |
-
-### Neon Cloud Setup
-
-1. Create project at [console.neon.tech](https://console.neon.tech)
-2. Get connection string from Dashboard → Connection Details
-3. Enable **SSL mode: require** (default for Neon Cloud)
-4. Configure IP allowlist or use Neon's secure proxy
-
-### Building Production Image
+Both runtime stages run as `nodejs`, not root, and use `tini` as PID 1 so
+SIGTERM reaches node and `src/server.js` actually runs its drain sequence
+instead of the process dying mid-request.
 
 ```bash
-# Build locally
-docker build -t acquisitions-api:latest --target production .
-
-# Or with BuildKit for faster builds
-DOCKER_BUILDKIT=1 docker build -t acquisitions-api:latest --target production .
-
-# Multi-platform (for ARM servers)
-docker buildx build --platform linux/amd64,linux/arm64 \
-  -t acquisitions-api:latest --target production --push .
+npm run prod:docker
 ```
 
-### Running with Docker Compose (Production)
-
-```bash
-# 1. Create .env.production with your secrets (or use platform secrets)
-cat > .env.production <<'EOF'
-NODE_ENV=production
-PORT=3000
-LOG_LEVEL=info
-DATABASE_URL=postgres://user:pass@ep-xxx.neon.tech/db?sslmode=require
-JWT_SECRET=your-super-secret-jwt-key-min-32-chars
-COOKIE_SECRET=your-cookie-secret
-CORS_ORIGIN=https://yourdomain.com
-EOF
-
-# 2. Start
-docker-compose -f docker-compose.prod.yml up -d --build
-
-# 3. Verify
-docker-compose -f docker-compose.prod.yml ps
-curl http://localhost:3000/health
-```
-
-### Production Deployment Options
-
-#### Option 1: Docker Compose on VM (DigitalOcean, AWS EC2, etc.)
-```bash
-# On server
-git clone <repo>
-cd acquisitions
-# Set secrets via environment or .env.production (chmod 600!)
-docker-compose -f docker-compose.prod.yml up -d --build
-
-# Add systemd service for auto-restart
-sudo tee /etc/systemd/system/acquisitions.service <<'EOF'
-[Unit]
-Description=Acquisitions API
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/acquisitions
-ExecStart=/usr/bin/docker-compose -f docker-compose.prod.yml up -d
-ExecStop=/usr/bin/docker-compose -f docker-compose.prod.yml down
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl enable --now acquisitions
-```
-
-#### Option 2: Railway / Render / Fly.io
-```bash
-# Railway
-railway login
-railway link
-railway up
-
-# Set secrets in Railway dashboard:
-# DATABASE_URL, JWT_SECRET, COOKIE_SECRET
-
-# Fly.io
-fly launch
-fly secrets set DATABASE_URL=... JWT_SECRET=... COOKIE_SECRET=...
-fly deploy
-```
-
-#### Option 3: Kubernetes (Helm/Kustomize)
-```yaml
-# k8s/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: acquisitions-api
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: acquisitions-api
-  template:
-    metadata:
-      labels:
-        app: acquisitions-api
-    spec:
-      containers:
-      - name: app
-        image: ghcr.io/yourusername/acquisitions-api:latest
-        ports:
-        - containerPort: 3000
-        envFrom:
-        - secretRef:
-            name: acquisitions-secrets
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 15
-          periodSeconds: 30
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: acquisitions-secrets
-type: Opaque
-stringData:
-  DATABASE_URL: "postgres://..."
-  JWT_SECRET: "..."
-  COOKIE_SECRET: "..."
-```
-
-#### Option 4: Serverless (Vercel, Netlify, AWS Lambda)
-> Note: Express.js requires adaptation for serverless (use `@vercel/node` or similar). Consider migrating to Hono or standard Web APIs for edge deployment.
-
----
-
-## Environment Variable Reference
-
-### Development (`.env.development`)
-```env
-NODE_ENV=development
-PORT=3000
-LOG_LEVEL=debug
-DATABASE_URL=postgres://neon:npg@neon-local:5432/neondb?sslmode=disable
-JWT_SECRET=dev-secret-change-in-production-min-32-chars
-JWT_EXPIRES_IN=15m
-COOKIE_SECRET=dev-cookie-secret-change-in-production
-CORS_ORIGIN=http://localhost:3000,http://localhost:5173
-```
-
-### Production (`.env.production` - template only!)
-```env
-NODE_ENV=production
-PORT=3000
-LOG_LEVEL=info
-# DATABASE_URL=postgres://user:pass@ep-xxx.neon.tech/db?sslmode=require
-# JWT_SECRET=generate-with-openssl-rand-base64-32
-# COOKIE_SECRET=generate-with-openssl-rand-base64-32
-# ARCJET_KEY=ajkey_your_key
-# CORS_ORIGIN=https://yourdomain.com
-```
-
-### Switching Between Environments
-
-The `DATABASE_URL` is the key differentiator:
-
-| Environment | DATABASE_URL |
-|-------------|--------------|
-| **Local Dev** | `postgres://neon:npg@neon-local:5432/neondb?sslmode=disable` |
-| **CI/Test** | `postgres://neon:npg@neon-local:5432/neondb?sslmode=disable` (Neon Local in CI) |
-| **Staging** | `postgres://user:pass@ep-staging.neon.tech/db?sslmode=require` |
-| **Production** | `postgres://user:pass@ep-prod.neon.tech/db?sslmode=require` |
-
----
-
-## Dockerfile Details
-
-### Multi-Stage Build Stages
-
-| Stage | Base | Purpose | Output |
-|-------|------|---------|--------|
-| `base` | `node:22-alpine` | Common setup, non-root user | Base image |
-| `deps` | `base` | Production `npm ci` | `node_modules` (prod only) |
-| `dev-deps` | `base` | Full `npm ci` (incl. dev) | `node_modules` (all) |
-| `builder` | `dev-deps` | Build steps (TypeScript, etc.) | Built artifacts |
-| `development` | `dev-deps` | **Dev runtime** with hot reload | Dev server |
-| `production` | `base` | **Prod runtime** (minimal) | Production server |
-
-### Key Features
-- **Non-root user**: Runs as `nodejs` (UID 1001)
-- **Minimal attack surface**: Alpine Linux, no build tools in prod
-- **Proper init**: Uses `tini` for signal handling
-- **Health checks**: Built-in `/health` endpoint
-- **Layer caching**: Dependencies copied before source
-- **BuildKit ready**: Uses modern Docker features
-
----
-
-## Common Commands Reference
-
-### Development
-```bash
-# Start with build
-docker-compose -f docker-compose.dev.yml up --build
-
-# Start detached
-docker-compose -f docker-compose.dev.yml up -d
-
-# View logs
-docker-compose -f docker-compose.dev.yml logs -f app
-
-# Execute command in container
-docker-compose -f docker-compose.dev.yml exec app npm run db:migrate
-docker-compose -f docker-compose.dev.yml exec app npm run db:studio
-docker-compose -f docker-compose.dev.yml exec app sh
-
-# Stop (keep volumes)
-docker-compose -f docker-compose.dev.yml down
-
-# Stop and remove volumes (clean slate)
-docker-compose -f docker-compose.dev.yml down -v
-
-# Rebuild single service
-docker-compose -f docker-compose.dev.yml up --build --no-deps app
-```
-
-### Production
-```bash
-# Build production image
-docker build -t acquisitions-api:prod --target production .
-
-# Run standalone (with env vars)
-docker run -d \
-  --name acquisitions-api \
-  -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e DATABASE_URL="..." \
-  -e JWT_SECRET="..." \
-  -e COOKIE_SECRET="..." \
-  acquisitions-api:prod
-
-# With compose
-docker-compose -f docker-compose.prod.yml up -d --build
-
-# Scale (if using swarm/k8s)
-docker-compose -f docker-compose.prod.yml up -d --scale app=3
-
-# Update with zero downtime (rolling)
-docker-compose -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.prod.yml up -d --no-deps app
-```
-
-### Debugging
-```bash
-# Inspect image layers
-docker history acquisitions-api:prod
-
-# Run shell in production image
-docker run -it --rm --entrypoint sh acquisitions-api:prod
-
-# Check health endpoint
-curl http://localhost:3000/health
-
-# View resource usage
-docker stats acquisitions-app-dev
-```
-
----
-
-## Troubleshooting
-
-### Neon Local Issues
-
-**Problem**: `connection refused` to neon-local
-```bash
-# Check neon-local health
-docker-compose -f docker-compose.dev.yml logs neon-local
-
-# Verify it's ready
-docker-compose -f docker-compose.dev.yml exec neon-local pg_isready -U neon -d neondb
-```
-
-**Problem**: Database not persisting
-```bash
-# Ensure volume exists
-docker volume ls | grep neon-local
-
-# Check volume mount
-docker-compose -f docker-compose.dev.yml config | grep -A5 volumes
-```
-
-### Application Issues
-
-**Problem**: `DATABASE_URL` not found
-```bash
-# Verify env file loaded
-docker-compose -f docker-compose.dev.yml config | grep DATABASE_URL
-
-# Check inside container
-docker-compose -f docker-compose.dev.yml exec app env | grep DATABASE
-```
-
-**Problem**: Hot reload not working
-```bash
-# Ensure bind mount works
-docker-compose -f docker-compose.dev.yml exec app ls -la /app/src
-
-# Check Node version supports --watch
-docker-compose -f docker-compose.dev.yml exec app node --version
-# Need v18.11+
-```
-
-### Production Issues
-
-**Problem**: Container exits immediately
-```bash
-# Check logs
-docker-compose -f docker-compose.prod.yml logs app
-
-# Common causes:
-# - Missing required env vars (DATABASE_URL, JWT_SECRET)
-# - Database connection failed (check Neon Cloud IP allowlist)
-# - Port already in use
-```
-
-**Problem**: Health check failing
-```bash
-# Test manually
-docker-compose -f docker-compose.prod.yml exec app \
-  node -e "require('http').get('http://localhost:3000/health', (r) => console.log(r.statusCode))"
-```
-
----
-
-## Security Checklist
-
-- [ ] Use non-root user in Dockerfile (`nodejs:1001`)
-- [ ] No secrets in images (use env vars / secrets manager)
-- [ ] Enable `sslmode=require` for Neon Cloud
-- [ ] Set strong `JWT_SECRET` (32+ chars, rotate periodically)
-- [ ] Use `HttpOnly`, `Secure`, `SameSite=Strict` cookies
-- [ ] Configure CORS to specific origins only
-- [ ] Enable Helmet.js (already in app)
-- [ ] Rate limiting via Arcjet (configured)
-- [ ] Regular base image updates (`docker pull node:22-alpine`)
-- [ ] Scan images: `docker scout cves acquisitions-api:prod`
-
----
-
-## CI/CD Integration Example (GitHub Actions)
-
-```yaml
-# .github/workflows/docker.yml
-name: Docker Build & Deploy
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha
-      
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: production
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy-staging:
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - name: Deploy to staging
-        run: |
-          # Use your deployment method (Railway, Render, SSH, etc.)
-          echo "Deploy to staging..."
-```
-
----
-
-## Resources
-
-- [Neon Local Documentation](https://neon.com/docs/local/neon-local)
-- [Neon Serverless Driver](https://github.com/neondatabase/serverless)
-- [Docker Multi-stage Builds](https://docs.docker.com/build/building/multi-stage/)
-- [Node.js Docker Best Practices](https://nodejs.org/en/docs/guides/nodejs-docker-webapp/)
-- [Drizzle ORM with Neon](https://orm.drizzle.team/docs/get-started-postgresql#neon-serverless-driver)
-
----
+That runs `bash ./scripts/prod.sh`, which refuses to start without
+`.env.production`, greps `JWT_SECRET` for at least 32 characters before building
+— the app would otherwise crash-loop rather than say why — applies migrations
+**first**, then brings up `docker-compose.prod.yml` and polls the
+`acquisitions-app-prod` healthcheck until it is actually serving. Migrations run
+from the host here, and that is correct for this stack: the target is a managed
+database reachable from anywhere, not a compose service hostname.
+
+Required in `.env.production`:
+
+| Secret | Notes |
+|---|---|
+| `DATABASE_URL` | Managed Postgres connection string, `sslmode=require` |
+| `JWT_SECRET` | ≥32 chars; `openssl rand -base64 32`. Startup throws without it |
+
+`COOKIE_SECRET` was removed in Phase 1: three env templates required it and
+`scripts/prod.sh` checked for it while nothing in `src/` read it. No cookie is
+signed, and none needs to be — the session cookie holds a JWT that carries its
+own signature. A required variable that does nothing trains people to skim the
+setup checklist, which is how the entries that matter get missed.
+
+One production setting is easy to get wrong: `stop_grace_period` must exceed
+`SHUTDOWN_READINESS_DELAY_MS + SHUTDOWN_DRAIN_TIMEOUT_MS`, which is 12s by
+default. Both compose files set 20s. Below that, the orchestrator sends SIGKILL
+mid-drain, the graceful shutdown never completes, and Postgres can be left
+holding connections — a shutdown path that is present in the code and never
+executed is indistinguishable from one that does not exist.
+
+Only port 3000 is published; TLS belongs to a reverse proxy in front (there is a
+commented nginx service in `docker-compose.prod.yml`). Note that setting
+`TRUST_PROXY` is what makes the rate limiter see real client addresses behind
+such a proxy, and that it is unsafe to set until one is genuinely there.
+
+Kubernetes is Phase 7 — 3 replicas, a real readiness probe wired to
+`SHUTDOWN_READINESS_DELAY_MS`, migrations as an init container, and the failure
+drills that make a scale-out claim mean something. There are no manifests in
+this repository yet, and none are implied.
 
 ## License
 
-ISC License - See [LICENSE](LICENSE) for details.
+ISC, per `package.json`. There is no `LICENSE` file in the repository yet.

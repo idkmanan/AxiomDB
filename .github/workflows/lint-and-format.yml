@@ -1,5 +1,29 @@
 name: Lint and Format
 
+# ---------------------------------------------------------------------------
+# BLOCKING as of Phase 1. It was not before, and how it failed is worth recording
+# because the workflow looked correct and always went green:
+#
+#   - name: Run lint
+#     run: npm run lint
+#     continue-on-error: true      # <- swallows the failure
+#   - name: Check format
+#     run: npm run format:check
+#     continue-on-error: true      # <- swallows the failure
+#   - name: Annotate lint failures
+#     if: failure()                # <- can therefore never be true
+#     run: ... exit 1
+#
+# `continue-on-error` stops a failing step from marking the job as failed, so
+# `failure()` never evaluated true and the one step that would have failed the
+# build was unreachable. The repo carried 37 lint errors in main under a green
+# check mark. A gate that cannot fail is worse than no gate, because it is
+# reported as passing.
+#
+# Removing continue-on-error is also what makes the annotation step below
+# reachable for the first time.
+# ---------------------------------------------------------------------------
+
 on:
   push:
     branches: [main, staging]
@@ -17,24 +41,37 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          # Matches the Dockerfile's node:22-alpine. Linting on a different major
+          # than the one that runs in production is how a syntax-level difference
+          # reaches a deploy.
+          node-version: '22.x'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run lint
-        run: npm run lint
-        continue-on-error: true
-
+      # Prettier owns layout, eslint owns correctness — see the note in
+      # eslint.config.js about why both were policing the same bytes before.
+      # Format runs first because a formatting diff is the cheaper failure to read.
       - name: Check format
         run: npm run format:check
-        continue-on-error: true
 
-      - name: Annotate lint failures
+      - name: Run lint
+        run: npm run lint
+
+      - name: Explain failure
         if: failure()
         run: |
-          echo "Lint or format issues found. Run the following commands to fix:"
-          echo "  npm run lint:fix"
-          echo "  npm run format"
-          exit 1
+          {
+            echo "## Lint or format check failed"
+            echo ""
+            echo "Fix locally with:"
+            echo ""
+            echo '```'
+            echo "npm run format"
+            echo "npm run lint:fix"
+            echo '```'
+            echo ""
+            echo "If a rule is wrong rather than the code, change it in eslint.config.js"
+            echo "or .prettierrc in the same PR — do not add continue-on-error."
+          } >> "$GITHUB_STEP_SUMMARY"

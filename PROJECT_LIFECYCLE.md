@@ -15,9 +15,9 @@ commit messages and docs. Every finding cites a file and line or a command outpu
 | Phase | Status | Started | Completed | Deliverable |
 |---|---|---|---|---|
 | 0 — Baseline measurement | **Complete** — matrix executed, results committed, findings F-01..F-20 recorded | 2026-09-01 | 2026-09-03 | Reproducible benchmark harness + v0 numbers |
-| 1 — Correctness & security | Next | — | — | Defect-free baseline |
+| 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-31 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
 | 2 — TypeScript migration | Not started | — | — | Strict-typed source |
-| 3 — Postgres foundation | Not started | — | — | Pooling, indexes, pagination, isolation |
+| 3 — Postgres foundation | Not started — **rescoped**, see the Phase 1 section | — | — | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
 | 4 — Redis: limits & tokens | Not started | — | — | Distributed rate limiting, refresh rotation |
 | 5 — Kafka & outbox | Not started | — | — | Async pipeline, no dual-write loss |
 | 6 — Observability | Not started | — | — | Cross-hop trace |
@@ -395,3 +395,301 @@ from instinct, and the largest single win is a deletion:
 
 Compare against the 5-VU and knee rows only. Any before/after quoted from a censored
 row is not a result (F-13).
+
+---
+
+## Phase 1 — Correctness & security
+
+**Started:** 2026-09-04
+**Baseline for comparison:** `d91234b`, `src/` tree `07d128b0`, tag `v0-baseline`
+**Goal:** a baseline that is correct rather than merely fast — and, because the
+ordering came from Phase 0's measurements rather than instinct, one that is also
+about three times faster.
+
+### Scope, and the two conflicts that had to be resolved first
+
+`UPGRADE_PLAN.md:108` scoped this phase to correctness and security only.
+The *Phase 1 entry criteria* section above, written after the numbers came in,
+ordered it by measured cost and pulled in two items the plan had assigned to
+Phase 3. Those are not the same phase, so the conflict was settled explicitly
+rather than split down the middle:
+
+**Evidence order wins.** Phase 1 is the correctness defects **plus** removing
+Arcjet, **plus** sizing the pg pool (F-15), **plus** paginating the users list.
+Phase 3 narrows to what actually needs volume to demonstrate: the new write-heavy
+entity, the 1M-row seeder, keyset pagination, composite indexes, and the
+transaction/isolation work. Offset pagination now and keyset pagination there is
+not indecision — at 1,001 rows the difference between them is unmeasurable, and
+claiming an improvement that cannot be demonstrated is the thing this project
+exists to avoid.
+
+The second conflict was in the harness. `BENCHMARKING.md` freezes the k6 scripts
+across phases; F-17 says fix the 25%-authentication mix before claiming any of the
+above. Both cannot hold. Resolution: **`baseline.js` stays frozen as the
+before/after instrument, and the corrected mix becomes a new script whose own
+series starts here.** Changing the mix inside `baseline.js` would have invalidated
+the committed v0 matrix and required a ~75 minute re-run of Phase 0 before Phase 1
+could claim anything. Two numbers with different meanings, each internally
+comparable, beats one number that quietly changed meaning between phases.
+
+One nuance worth stating because it looks like a violation: `baseline.js` **was**
+edited, by exactly one line, to read its output directory from the environment. The
+freeze protects the *measured behaviour* — the request mix, load shape, thresholds,
+tags. Where the resulting file lands is not part of the measurement. Anyone
+auditing the comparison should diff the file between the two runs and find only
+that line.
+
+### Findings
+
+| ID | Finding | Evidence | Severity |
+|---|---|---|---|
+| F-21 | Six validation-failure log sites recorded `{ errors: undefined }`. Zod 4 renamed `ZodError.errors` to `.issues`, so every one of them logged *that* a request failed validation and nothing about *why*. `formatValidationError` already used `.issues`, so the HTTP response stayed correct and only the log was blind — which is why it was invisible | `node -e "…safeParse({}).error…"` → `has .issues: true / has .errors: UNDEFINED` on zod 4.4.3; sites at `auth.controller.js:12,:44` and `users.controller.js:30,:60,:69,:110` | Observability |
+| F-22 | No lint rule can catch the winston comma-expression bug. `no-sequences` exists for exactly that mistake but treats a sequence wrapped in explicit parentheses as deliberate — and the extra parentheses **are** the bug. `no-unused-expressions` does not fire either, because the construct sits in a call argument rather than an expression statement | both rules run against `f((a(), b(), c()))` in isolation: zero reports | **Tooling blind spot** |
+| F-23 | F-09 was worse than an ordering race. `.env.development:11` pointed `DATABASE_URL` at `@postgres:5432`, a compose service hostname, so the host-side migration in `dev.sh` could not reach the dev database at *any* point in the sequence. Separately `drizzle.config.js:1` loads plain `dotenv/config`, i.e. `.env` — not `.env.development` — so which URL a host-side migration used depended on an untracked file | `getent hosts postgres` → no output; `drizzle.config.js:1` | Reliability — blocked a clean clone |
+| F-24 | `scripts/prod.sh` printed commands referencing container `acquisition-app-prod` while `docker-compose.prod.yml:39` declares `acquisitions-app-prod`, so every command it suggested would fail with "No such container". It also ran migrations *after* starting the app, and waited with `sleep 5` under the message "Waiting for Neon Local to be ready" — a service this stack does not contain | `grep -n container_name docker-compose.prod.yml` vs `scripts/prod.sh:42,45,46` | Reliability |
+| F-25 | `src/utils/jwt.js:4` fell back to a hardcoded secret string committed in this repository. A production deploy that forgot `JWT_SECRET` would start cleanly, behave normally, and sign tokens anyone with the repo could forge — including admin tokens | `const JWT_SECRET = process.env.JWT_SECRET \|\| 'your-secret-key-please-change-in-production'` | **Security — silent total auth bypass** |
+| F-26 | eslint and prettier both policed formatting — `indent`, `quotes`, `semi` were set in `eslint.config.js` while `.prettierrc` set the same things — and `eslint-config-prettier` sat in devDependencies unused. Harmless while lint was `continue-on-error`; the moment both gates became blocking, `npm run lint:fix` and `npm run format` could undo each other | `eslint.config.js:23-26` vs `.prettierrc`; `eslint-config-prettier@10.1.8` present, not imported | Process |
+| F-27 | winston's File transports held open file descriptors under jest, producing "Jest did not exit one second after the test run has completed" — an open handle that reads as a leak in the code under test. Tests were also appending to the same `logs/error.log` the application writes | reproduced by running the suite with the file transports active; fixed by omitting them when `NODE_ENV=test` | Test hygiene |
+| F-28 | My own request-logging middleware read `req.path` from a `'finish'` listener, and Express rewrites `req.url`/`req.baseUrl` as a request descends into a mounted router and restores them as the stack unwinds. So the same route logged `path: '/sign-up'` when the controller answered inside the router and `'/api/auth/sign-in'` when `next(e)` unwound to the app-level error handler first — the field was unstable in a way that depended on whether the request had errored | observed directly in the two log lines during Phase 1 verification; fixed by reading `req.originalUrl`, which is never rewritten | Observability — self-inflicted |
+| F-29 | `CORS_ORIGIN` was documented in three env templates and read by nothing. `src/app.js:14` called `cors()` with no options, so the effective policy was `Access-Control-Allow-Origin: *` — a security setting that appeared configured and was not | `grep -rn "CORS_ORIGIN" src/` → no matches, against `.env.example`, `.env.development` and `.env.production` all listing it | **Security — misleading configuration** |
+| F-30 | `COOKIE_SECRET` was required by three env templates and checked for by `scripts/prod.sh`, while nothing in `src/` read it: `cookieParser()` is constructed with no secret, so no cookie is signed | `grep -rn "COOKIE_SECRET" src/` → no matches | Usability — a mandatory no-op |
+| F-31 | Two defects in my own Phase 1 error path, found by exercising a malformed body against a running server rather than through the test suite. (a) `requestId` was mounted after `express.json()`, so a body-parser failure produced a 400 with **no** correlation id — `JSON.stringify` drops the undefined field silently. (b) `classify()` checked `err.status` before its SyntaxError branch, and body-parser already sets `status = 400`, so the parser's own message went to the client instead of the sanitised one; that text can quote a fragment of the offending body | observed: `{"error":"Unexpected end of JSON input","message":"Unexpected end of JSON input"}` with no `requestId`; now `{"error":"Malformed JSON in request body","requestId":"…"}` | Observability + minor disclosure — self-inflicted |
+
+**F-31 is the most useful finding of the phase to have caught**, because the existing
+test asserted the two things that were already right — status 400, no stack frame —
+and passed while both defects were live. Booting the process and sending a malformed
+body found them in one command. The lesson is narrow and worth keeping: *a test
+written from the same mental model as the code inherits its blind spots*, and the
+cheapest correction is to exercise the running thing.
+
+It also pairs with F-28: every defect I introduced in this phase was in the
+observability layer, where being wrong is silent by construction.
+
+**F-29 and F-30 are the same defect in two directions**, and they were found while
+rewriting the README against the code rather than against the previous README — which
+is the only reason they surfaced at all. One setting looked enforced and was not; the
+other looked mandatory and did nothing. Both mislead in the way that matters: they
+teach a reader that the configuration is decorative, and the next variable they skip
+is one that counts.
+
+The fixes differ deliberately. `CORS_ORIGIN` is now read, because an origin allow-list
+is worth having — with `credentials` enabled only for an explicit list, since a
+wildcard plus credentials is rejected by browsers. `COOKIE_SECRET` was **deleted**
+rather than wired up: the session cookie holds a JWT, which already carries its own
+signature, so signing the cookie would add a second integrity check over the same
+bytes. Making a no-op real is not automatically better than removing it.
+
+Worth recording alongside F-29: `sameSite=strict` on the session cookie means a
+browser will not send it cross-site regardless of what CORS says. So the allow-list
+governs who may *read responses*, not who may *authenticate*. Conflating those is how
+CORS gets described as an authentication control.
+
+**F-25 is the most serious finding of Phase 1**, and it is the same shape as F-07
+from Phase 0: a security control that degrades to nothing without saying so. Arcjet
+failed open when it could not reach its API; the JWT layer failed open when it could
+not find its secret. In both cases the application starts, serves traffic, logs
+nothing unusual, and provides no protection. `src/config/env.js` now throws in
+production and warns loudly elsewhere. The generalisable rule, now stated twice in
+this file: **a security control with a working default is a security control that
+will eventually run with the default.**
+
+**F-22 is the most interesting one.** The winston bug (`combine((a, b, c))`) is
+invisible to review because the code reads correctly, invisible at runtime because
+the app starts and logs appear, and — as it turns out — invisible to the linter
+whose entire purpose is catching accidental comma expressions, because the syntax
+that causes the bug is the syntax the rule accepts as intent. That is the argument
+for `tests/logging.test.js` asserting on the **formatted output line** rather than
+on `logger.info` having been called: a mock-based test passes identically with the
+bug present and absent. The suite now also reproduces the defect deliberately, so
+the evidence lives in the tests rather than only in a commit message.
+
+### What was fixed, and what was deliberately left
+
+Every v0 defect from `UPGRADE_PLAN.md` Part 1, plus the four evidence-ordered items:
+
+```
+PRIVILEGE ESCALATION       role removed from signupSchema entirely, schema made
+                           strict so an attempt is a logged 400 rather than a
+                           silent strip, and createUser no longer accepts a role
+                           parameter at all — two independent gates
+LOGGER                     both combine((a,b,c)) comma expressions fixed; a
+                           timestamp and stack now reach every record
+SESSION LIFETIME           one SESSION_TTL_MS in src/config/env.js, consumed by
+                           both jwt.js and cookies.js; asserted equal by a test
+JWT SECRET                 no usable fallback; throws in production (F-25)
+GLOBAL ERROR HANDLER       classify() maps AppError / pg SQLSTATE / body-parser
+                           errors; 5xx bodies carry a request id and nothing else
+GRACEFUL SHUTDOWN          fail readiness -> pause -> close listener -> drain ->
+                           release pool and sweeper; SIGINT takes the same path
+MORGAN                     dropped; one structured line per response instead of
+                           an Apache string wrapped in a JSON message field
+ARCJET                     deleted, with @arcjet/node and @arcjet/inspect
+RATE LIMITING              src/rate-limit/ — sliding-window log, 429 +
+                           Retry-After + RateLimit-*, per-route fail policy,
+                           mounted AFTER authenticate (ADR 0003)
+PG POOL                    max / connectionTimeoutMillis / idleTimeoutMillis
+                           explicit; 'error' listener added so an idle-client
+                           error cannot terminate the process (F-15)
+PAGINATION                 GET /api/users?limit&offset, ORDER BY id, capped
+CI LINT                    continue-on-error removed; 37 pre-existing errors
+                           cleared; eslint and prettier responsibilities split
+DOCKER IMAGE NAME          local-kube-api -> acquisitions
+DEV/PROD SCRIPTS           health-gated waits, migrations in the right order and
+                           on the right network (F-23, F-24)
+COMPOSE                    obsolete `version:` key removed from both files;
+                           dev credentials parameterised; stop_grace_period set
+                           so a drain is not SIGKILLed mid-sequence
+```
+
+Left in place **on purpose**, each with the phase that owns it:
+
+- **The Neon HTTP driver branch** in `src/config/database.js`. Removing it changes
+  what the v1 benchmark measures beyond the four changes being attributed. Phase 3.
+  What Phase 1 adds is a loud warning — the driver switch was silent, and F-06
+  exists because of it.
+- **The signup check-then-insert race.** Phase 1 translates SQLSTATE 23505 so the
+  loser of the race gets the 409 the controller always intended instead of a 500,
+  but the race is still there. Wrapping it in a transaction is Phase 3's worked
+  example for isolation levels; spending the exhibit early would waste it.
+- **Read-modify-write in `updateUser`/`deleteUser`.** Same reasoning — it is the
+  lost-update demonstration.
+- **The sign-in timing oracle.** With no user found, no bcrypt compare runs, so a
+  nonexistent address answers measurably sooner than a wrong password. Closing it
+  needs a dummy compare against a fixed hash, and it belongs with the Phase 4
+  rebuild of the credential path.
+- **A single-node rate limiter.** Three replicas would each hold their own state and
+  allow 3× the configured limit. That is the Phase 4 exhibit, and it is recorded in
+  ADR 0003 rather than left to be discovered.
+
+### Harness changes
+
+```
+benchmarks/k6/lib/journey.js        NEW — shared read-heavy journey (realistic + saturation)
+benchmarks/k6/realistic.js          NEW — ~0.5% auth mix; its series starts at v1 (F-17)
+benchmarks/k6/saturation.js         repointed at the real mix; RATE is now iterations/s and
+                                    the useful range drops ~2 orders of magnitude (F-17)
+benchmarks/k6/baseline.js           FROZEN — one line changed, the output directory
+benchmarks/k6/lib/config.js         +RESULTS_DIR
+benchmarks/scripts/run-phase.sh     NEW — PHASE parameter, no variant loop, verifies the
+                                    limiter ceilings in-container and asserts after every
+                                    run that zero requests were rejected
+benchmarks/scripts/run-baseline.sh  now a wrapper, kept because committed artifacts cite it
+benchmarks/scripts/report.mjs       --phase, --compare; refuses to pair different instruments
+                                    or censored rows
+benchmarks/scripts/attribute-failures.mjs  --dir / --out
+.env.bench.example                  ARCJET_KEY and BENCH_BYPASS_SECURITY gone; pool,
+                                    pagination, session and rate-limit knobs added
+docker-compose.bench.yml            BENCH_BYPASS_SECURITY removed; stop_grace_period added
+.gitattributes                      results glob generalised to every phase
+package.json                        +bench:v1, +bench:report:v1, +bench:attribute:v1
+```
+
+The new guardrail is the one worth explaining, because it is the direct successor to
+Phase 0's in-container variant check. The limiter is ours now and runs on every
+request, and every k6 VU shares one source IP — so a production-shaped per-IP limit
+would reject most of the matrix. Rejections are *fast*, so the report would show a
+dramatic latency improvement that was really the limiter refusing to work. That is
+exactly the trap recorded as the F-16 corollary: supplying a working Arcjet key
+would not have improved the v0 runs, it would have ended them. So `.env.bench`
+raises the ceilings far above what the matrix can generate — the limiter still
+executes, so its CPU cost is still measured, and only the rejection is taken out of
+the way — and the runner checks the *outcome* rather than the configuration, reading
+the ceilings back out of the running container and refusing any result file with a
+non-zero 429 rate.
+
+### Verified in this environment
+
+- `npm run lint` → **0 errors** (from 37). `npm run format:check` → clean. Both are
+  now blocking in CI.
+- `npm test` → **68 tests across 6 suites**, all passing, process exits cleanly.
+  Coverage of the new behaviour rather than the old three smoke tests: the
+  escalation attempt, the limiter's status/headers/keying/failure policy, the
+  logger's formatted output, `classify()`'s full mapping, no stack in any error
+  body, pagination defaults and caps, and the cookie/JWT lifetime agreement.
+- App boots under `NODE_ENV=test` with no database and serves `/health` 200,
+  `/ready` 200, `/api` 200, unknown route 404 with a request id.
+- `POST /api/auth/sign-up` with `"role":"admin"` → **400**, `Unrecognized key:
+  "role"`, no `Set-Cookie` issued. The v0 request that returned an admin JWT to an
+  anonymous caller.
+- Malformed JSON → **400** with body
+  `{"error":"Malformed JSON in request body","requestId":"…"}` (was a 500 with a
+  body-parser stack trace); a 200 KB body → **413**, also carrying a request id.
+  Both verified against a running process, which is how F-31 was found.
+- **Graceful shutdown exercised end to end.** SIGTERM against a live process:
+  `/ready` was already 503 within 150 ms, `/health` flipped to 503, the drain
+  reported `All in-flight requests completed`, `closeDatabase()` returned
+  `{closed: true}` — confirming the pool branch ran and `pool.end()` completed — and
+  the process exited 0. Every log line carried a timestamp, which is the logger fix
+  observable in the one place it matters most.
+- **Rate limiter exercised end to end** with `RATE_LIMIT_AUTH_MAX=3`: requests 1-3
+  returned `RateLimit-Remaining: 2/1/0`, request 4 returned **429** with
+  `Retry-After: 60` and body
+  `{"error":"Too Many Requests","message":"Rate limit of 3 requests per 60s exceeded.","retryAfter":60}`.
+  Twelve consecutive `/health` hits all returned 200 with no `RateLimit-*` header, so
+  probes are genuinely unlimited.
+- **CORS allow-list exercised end to end**: a configured origin is reflected with
+  `Access-Control-Allow-Credentials: true`; an origin off the list gets no
+  `Access-Control-Allow-Origin` header at all.
+- A thrown error containing `postgres://user:hunter2@db/app` produces a response
+  body of exactly `{error, requestId}` — asserted not to contain the password or a
+  stack frame — while the full stack, cause and request id reach the log.
+- `report.mjs` regenerated `benchmarks/v0-baseline/SUMMARY.md` from the committed v0
+  JSON with **zero changes to any measured figure**; only the Reproduce block moved
+  to the new script names. That is the check that the harness rework did not disturb
+  the Phase 0 evidence.
+- `--compare` exercised against synthetic v1 results: it selected the v0
+  `asbuilt` rows as the "before" (695.18 ms p95 at 5 VUs, matching the committed
+  matrix), excluded the censored 100-VU level with a stated reason, and excluded the
+  realistic-mix row from the frozen-instrument comparison.
+- All seven YAML files parse, and the bench app healthcheck command is
+  byte-identical in value after reformatting. `bash -n` passes on all four shell
+  scripts. `node --check` passes on every JS file including the k6 scripts.
+- `.env.production`'s Neon credential was confirmed **not** to be the one leaked in
+  `4d0ae6e` — compared by hash rather than by eye, so F-04's remediation is verified
+  rather than assumed.
+
+### Not verified here — must run on the Docker host
+
+Same constraint as Phase 0: this VM has no Docker, no Postgres and no k6.
+
+```bash
+cp .env.bench.example .env.bench       # note: ARCJET_KEY is gone, RATE_LIMIT_* added
+git tag v1-correctness && git push origin v1-correctness
+npm run bench:v1                       # ~50 min with the default level sets
+npm run bench:report:v1                # SUMMARY.md incl. the v0→v1 delta table
+npm run bench:attribute:v1
+```
+
+Until that runs, `benchmarks/v1-correctness/results/` is empty by design and this
+phase has **no numbers**. The throughput claim implied by removing ~75 ms of CPU per
+request is an expectation, not a result, and must not be quoted until the matrix has
+run. F-19 applies: tag *before* measuring, and check `environment.json` afterwards
+for `tag: "unavailable"`.
+
+### Phase 1 exit criteria
+
+- [x] All v0 correctness and security defects fixed, each with a test
+- [x] Arcjet removed; rate limiting owned, with an explicit per-route failure policy
+- [x] 429 + `Retry-After` + `RateLimit-*` replace the v0 403 (F-08)
+- [x] Limiter mounted after `authenticate`, so per-role limits actually apply
+- [x] pg pool `max` and `connectionTimeoutMillis` explicit (F-15)
+- [x] Users list paginated and capped
+- [x] Global error handler; no stack trace on the wire in any status class
+- [x] Graceful shutdown with readiness gating
+- [x] CI lint and format blocking; 37 pre-existing errors cleared
+- [x] Docker image name corrected
+- [x] Harness: frozen instrument preserved, realistic mix added, saturation fixed (F-17)
+- [x] Findings F-21..F-31 recorded with evidence
+- [x] `docs/INTERVIEW_PHASE_1.md` written
+- [ ] `v1-correctness` tag pushed
+- [ ] v1 matrix executed on the Docker host
+- [ ] `SUMMARY.md` generated, including the v0→v1 comparison
+
+**Verdict: code complete, numbers pending.** The same honest position Phase 0 held
+for two days. The deliverable of this phase is a measured delta, and no measurement
+exists yet — so the correct statement today is "the defects are fixed and the tests
+prove it", not "throughput tripled".
+
+
+
+

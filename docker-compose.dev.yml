@@ -1,17 +1,20 @@
 # =============================================================================
-# Development Docker Compose with PostgreSQL (Standard)
+# Development Docker Compose with PostgreSQL
 # =============================================================================
-# Usage: docker-compose -f docker-compose.dev.yml up --build
-#        docker-compose -f docker-compose.dev.yml up -d  (detached)
-#        docker-compose -f docker-compose.dev.yml logs -f app
-#        docker-compose -f docker-compose.dev.yml down -v (clean volumes)
+# Usage: bash scripts/dev.sh          (recommended — migrates in the right order)
+#        docker compose -f docker-compose.dev.yml up --build
+#        docker compose -f docker-compose.dev.yml down -v   (clean volumes)
+#
+# Requires Compose V2. The `version:` key that used to head this file was removed
+# in Phase 1: it has been obsolete since Compose V2 and every invocation printed
+# a deprecation warning, which trains people to ignore warnings.
 # =============================================================================
 
-version: '3.8'
+name: acquisitions-dev
 
 services:
   # ---------------------------------------------------------------------------
-  # PostgreSQL: Local database for development
+  # PostgreSQL: local database for development
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
@@ -20,25 +23,30 @@ services:
     env_file:
       - .env.development
     environment:
-      - POSTGRES_USER=neon
-      - POSTGRES_PASSWORD=npg
-      - POSTGRES_DB=neondb
+      # Defaulted rather than hardcoded. v0 pinned `POSTGRES_PASSWORD=npg` here
+      # with no override, so the one credential in the dev stack was a literal in
+      # a tracked file. These are still weak local-only values — the point is that
+      # they are now overridable from .env.development instead of requiring an edit
+      # to a committed file, which is the habit that leaks real ones.
+      POSTGRES_USER: ${POSTGRES_USER:-neon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-npg}
+      POSTGRES_DB: ${POSTGRES_DB:-neondb}
     ports:
-      - "5432:5432"
+      - '${PG_HOST_PORT:-5432}:5432'
     volumes:
       - postgres-dev-data:/var/lib/postgresql/data
     networks:
       - acquisitions-dev
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U neon -d neondb"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-neon} -d ${POSTGRES_DB:-neondb}']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
 
-# ---------------------------------------------------------------------------
-  # Application: Express.js API Server
+  # ---------------------------------------------------------------------------
+  # Application: Express API server
   # ---------------------------------------------------------------------------
   app:
     build:
@@ -49,12 +57,19 @@ services:
     hostname: app
     env_file:
       - .env.development
+    environment:
+      # Declared here, not only in env_file, and this is load-bearing: values in
+      # `environment:` override env_file, so `scripts/dev.sh` can run migrations in
+      # a one-shot container on this network and be certain of the URL. The v0
+      # script migrated from the host against `@postgres:5432`, a service hostname
+      # that does not resolve there (see the note at the top of scripts/dev.sh).
+      DATABASE_URL: postgres://${POSTGRES_USER:-neon}:${POSTGRES_PASSWORD:-npg}@postgres:5432/${POSTGRES_DB:-neondb}?sslmode=disable
     ports:
-      - "3000:3000"
+      - '${APP_HOST_PORT:-3000}:3000'
     volumes:
       # Bind mount source for hot reload
       - .:/app
-      # Exclude node_modules from bind mount (use container's)
+      # Exclude node_modules from the bind mount (use the container's)
       - /app/node_modules
       # Persist logs
       - ./logs:/app/logs
@@ -64,7 +79,11 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    # Use stdin_open and tty for proper signal handling with --watch
+    # tini is PID 1 (see the Dockerfile), so SIGINT and SIGTERM reach node and
+    # src/server.js runs its drain sequence. `stop_grace_period` must exceed
+    # SHUTDOWN_READINESS_DELAY_MS + SHUTDOWN_DRAIN_TIMEOUT_MS or compose sends
+    # SIGKILL mid-drain and the shutdown path is never actually exercised.
+    stop_grace_period: 20s
     stdin_open: true
     tty: true
 
