@@ -16,12 +16,12 @@ commit messages and docs. Every finding cites a file and line or a command outpu
 |---|---|---|---|---|
 | 0 — Baseline measurement | **Complete** — matrix executed, results committed, findings F-01..F-20 recorded | 2026-09-01 | 2026-09-03 | Reproducible benchmark harness + v0 numbers |
 | 1 — Correctness & security | **Code complete** — defects fixed, Arcjet removed, findings F-21..F-37 recorded; v1 matrix pending on the Docker host | 2026-09-04 | — | Defect-free baseline + measured v0→v1 delta |
-| 2 — TypeScript migration | Not started | — | — | Strict-typed source |
-| 3 — Postgres foundation | Not started — **rescoped**, see the Phase 1 section | — | — | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
-| 4 — Redis: limits & tokens | Not started | — | — | Distributed rate limiting, refresh rotation |
-| 5 — Kafka & outbox | Not started | — | — | Async pipeline, no dual-write loss |
-| 6 — Observability | Not started | — | — | Cross-hop trace |
-| 7 — Kubernetes & scale-out | Not started | — | — | 3-replica benchmark + failure drills |
+| 2 — TypeScript migration | **Struck** — dropped deliberately, not deferred (ADR 0005) | — | — | — |
+| 3 — Postgres foundation | **Code complete** — one driver, deals entity, keyset pagination, indexes, transactions and locking; findings F-38..F-47. Seed/EXPLAIN/isolation scripts pending on the Docker host | 2026-09-05 | — | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
+| 4 — Redis: limits & tokens | **Code complete** — shared sliding window in Lua, refresh rotation with reuse detection, JTI denylist, idempotency keys, fenced lock; findings F-48..F-50 | 2026-09-05 | — | Distributed rate limiting, refresh rotation |
+| 5 — Kafka & outbox | **Code complete** — outbox in the domain transaction, publisher with SKIP LOCKED, idempotent consumer, DLQ; drill scripted | 2026-09-05 | — | Async pipeline, no dual-write loss |
+| 6 — Observability | **Reduced** — no OTel or Grafana; a hand-written `/metrics` endpoint carries the signals the other phases need (ADR 0006) | 2026-09-05 | — | RED, pool saturation, loop lag, outbox depth |
+| 7 — Kubernetes & scale-out | **Code complete** — manifests, probes, HPA, PDB, migration Job, kind script, five scripted drills; matrix pending on the cluster | 2026-09-05 | — | 3-replica benchmark + failure drills |
 | 8 — Hardening & docs | Not started | — | — | Integration tests, ADRs, BENCHMARKS.md |
 
 ---
@@ -774,6 +774,167 @@ for `tag: "unavailable"`.
 for two days. The deliverable of this phase is a measured delta, and no measurement
 exists yet — so the correct statement today is "the defects are fixed and the tests
 prove it", not "throughput tripled".
+
+---
+
+## Phases 3, 4, 5 and 7 — executed together, 2026-09-05
+
+### Scope, and the two phases that were struck
+
+Phases 3, 4, 5 and 7 were built in one pass. Phase 2 (TypeScript) and Phase 6
+(observability) were **dropped**, not deferred, and both decisions were taken
+deliberately rather than by drift:
+
+- **Phase 2 is struck.** Migrating 2,500 lines was already cheaper than migrating the
+  ~7,000 that exist now, so deferring it made it worse, and it produces no measurable
+  claim. Recorded as ADR 0005. JSDoc is used where it prevents a real bug — the store
+  interface, the event envelope, config — and nowhere else.
+- **Phase 6 is reduced to what the other phases need to be checkable.** No
+  OpenTelemetry, no Grafana, no prometheus-adapter. What exists is a `/metrics`
+  endpoint in Prometheus text format with the four signals that have each explained a
+  real failure in this project (RED per route, pool saturation, event-loop lag,
+  limiter rejections) plus the outbox and consumer counters. ADR 0006 records why it is
+  hand-written rather than `prom-client`.
+
+Cadence was also cut on purpose: one focused proof per phase and **one** final
+benchmark matrix, rather than a full matrix and an ~880-line interview document per
+phase. Phases 0 and 1 each cost more in artifacts than in code, and two aborted v1
+matrices were the evidence that the ceremony had started to crowd out the work.
+
+### Findings
+
+| id | finding | evidence | severity |
+|---|---|---|---|
+| F-38 | **`NODE_ENV` chose the database DRIVER, so production ran code development never executed.** Outside `development` the app used the Neon HTTP driver: request-per-query, no pool, therefore no `BEGIN`/`COMMIT`, no `SET TRANSACTION ISOLATION LEVEL`, no `SELECT … FOR UPDATE`, and nothing for `closeDatabase()` to drain on SIGTERM. Every Phase 3 deliverable was literally impossible in production while that branch existed, and every claim about draining connections on shutdown was false in the only environment that mattered | v1 `src/config/database.js:100-140`; the two drivers' capability difference is why `closeDatabase()` returned `{closed:false, reason:'http-driver-holds-no-connections'}` | **Correctness — dev and prod were different systems** |
+| F-39 | **node-postgres has no `min`, so the pool is cold at every deploy.** Each of the first `max` requests pays TCP + auth for a new connection, and the callback that completes it needs the event loop — which under load is busy. This is the mechanism behind F-37's `Connection terminated due to connection timeout` against a healthy database and a pool below `max`; raising `PG_POOL_MAX` would have made it worse | F-37's evidence, re-read: 4 of the 6 failures were on `POST /sign-in`, where the loop was in bcrypt at p50 2,091 ms. Fix: `prewarmPool()` before `app.listen()` | Latency — self-inflicted at every restart |
+| F-40 | `users.created_at` and `updated_at` are `timestamp` **without** time zone: a wall-clock reading with no offset, cast from `now()` through the server's local zone. `deals` uses `timestamptz`. The existing columns are deliberately not converted — `ALTER COLUMN … TYPE timestamptz` rewrites the table under an ACCESS EXCLUSIVE lock, which is free at 1,001 rows and an outage at 1M | `drizzle/0000_dapper_hedge_knight.sql:6-7` vs `drizzle/0001_deals.sql:11-13` | Schema — recorded, with the migration cost as the reason |
+| F-41 | **A transaction would not have fixed the signup race, and Phase 1 said it would.** At READ COMMITTED each statement takes a fresh snapshot of committed data, so an uncommitted INSERT in another session is invisible: both callers pass the existence check, both INSERT, one fails at COMMIT. `BEGIN` changes the timing and nothing else. The check was therefore **deleted** rather than wrapped, leaving the unique index as the serialization point — which also removes a round trip from every signup | `scripts/db/isolation-demo.mjs` scenario 1 demonstrates both snapshots seeing zero rows; scenario 2 shows SERIALIZABLE turning it into a 40001 that must be retried | **Correctness — the planned fix was the wrong fix** |
+| F-42 | Read-modify-write in `updateUser`/`deleteUser`: read the row, decide it exists, then write. The existence check was redundant with the UPDATE (a predicate that matches nothing returns nothing), so it bought nothing and cost a round trip, and the gap between read and write is a lost update. Fixed as one statement each. What that does **not** buy is stated in the code: concurrent updates to the same field remain last-writer-wins, which is conventional partial-update semantics — `deals` carries a version column to show the alternative | `scripts/db/isolation-demo.mjs` scenarios 3-5: two +10 increments produce +10 at READ COMMITTED, a 409 with the version column, and +20 with `SELECT … FOR UPDATE` | **Correctness** |
+| F-43 | `POST /api/deals` had no way to be retried safely. A lost response — a proxy timeout, or a deploy severing the socket, which is exactly F-34's 752 abandoned requests — makes a client resend, and the server had no way to recognise it. Fixed with `Idempotency-Key`: a `SET NX` claim, a stored 2xx response replayed with `Idempotent-Replay: true`, and 422 when the same key arrives with a different body | `tests/idempotency-lock.test.js` — the handler counts its own executions, so "did the write happen twice" is answered by the handler rather than inferred | Correctness — a duplicate resource per lost response |
+| F-44 | A keyset cursor over a non-unique sort key skips or repeats rows: the next page starts "after the last value seen", and every row sharing that timestamp is on the wrong side of the boundary. The cursor therefore carries `(created_at, id)`, and the index is declared over both | `tests/cursor.test.js` asserts two rows in the same millisecond produce different cursors | Correctness — silent data loss in pagination |
+| F-45 | `SELECT count(*)` reads every visible row, because MVCC keeps no authoritative counter — "how many rows are there" has a different answer per snapshot. Trivial at the 1,001 rows of `users` (2.20 ms, F-04) and a full scan per page request at 1M. The deals API returns no exact total; `GET /api/deals/summary` reports `total_estimated` from `pg_class.reltuples`, and `-1` (never analysed) is reported as `null` rather than as 0 | `benchmarks/scripts/explain.mjs` captures the `exact-count-star` plan next to the keyset plans | Performance — and an admitted estimate beats a wrong total |
+| F-46 | **A keyset cursor built from a `timestamptz` silently skips rows, because the driver truncates it.** Postgres timestamps default to microsecond precision; a JS `Date` holds milliseconds, and node-postgres returns a `Date`. So the last row of page one comes back truncated, the cursor asks for rows older than the truncated value, and every row inside the microsecond gap is skipped. Fixed by declaring the columns `timestamptz(3)`, so what Postgres stores is what JavaScript can represent | `drizzle/0001_deals.sql:11-13`; the failure mode is invisible below a few thousand writes per second, which is why it survives review | **Correctness — under load only** |
+| F-47 | **An index that looks like it matches the ORDER BY and does not.** `ORDER BY x DESC` means `NULLS FIRST` in SQL; drizzle emits indexes as `DESC NULLS LAST`. Postgres compares null placement when matching an index to a requested ordering and does not reason about the columns being NOT NULL, so `orderBy(desc(deals.created_at))` — the obvious drizzle helper — produces a Sort node over a full scan while the "correct" index sits unused. The service spells the ORDER BY out to match the index exactly | `tests/deals.test.js` asserts the rendered SQL contains `desc nulls last` on both columns; `explain-summary.md` has a `Sort node` column so the regression is visible in the plan | **Performance — a 1M-row sort instead of an index scan** |
+| F-48 | Using the timestamp as the sorted-set member in the Redis limiter undercounts: `ZADD` with an existing member updates its score rather than adding an entry, so two requests in the same millisecond count once. It fails precisely under the load where the limit matters and is invisible at low rates | `tests/redis-store.test.js` — the clock does not advance in that test, and the count still reaches 2 | Correctness — silent under-limiting |
+| F-49 | `enableOfflineQueue` defaults to **true** in ioredis, which turns a Redis outage into latency instead of an error: commands queue and the limiter's fail-open/fail-closed policy (ADR 0002) never runs. Disabled explicitly, with `maxRetriesPerRequest: 1` and a 300 ms command timeout, so an unavailable store produces an error the policy is written to handle | `src/redis/client.js`; `tests/redis-store.test.js` drives both branches through a real Express response | Correctness — a policy that could not execute |
+| F-50 | **A Redis lock cannot make an external side effect exclusive, no matter how it is implemented.** A holder paused past its TTL (GC, hypervisor migration, suspended container) resumes believing it still holds the lock while another process legitimately holds it. Redlock adds nodes and does not address this. The fix is a fencing token validated *by the resource* — and `deals.version` already is one, so the Redis lock is used only as an optimisation (one publisher, for ordering) and never for correctness | `src/redis/lock.js` header; `tests/idempotency-lock.test.js` asserts a stale holder's release does not delete the new holder's lock | Design — the honest limit of a distributed lock |
+
+### What was built
+
+**Phase 3 — Postgres foundation.** One driver (`pg.Pool` everywhere, F-38), pool
+pre-warming (F-39), and the `deals` entity: `bigserial`, money as `bigint` cents,
+`timestamptz(3)` (F-46), a `version` column, an enum stage machine, three CHECK
+constraints and an FK with `ON DELETE RESTRICT`. Three indexes, each justified by one
+query: `(created_at, id)` for the global page, `(owner_id, created_at, id)` for the
+scoped page — which is the hot path, because non-admins are pinned to their own deals
+— and a **partial** index over open deals by stage. Keyset pagination with an opaque
+cursor beside the OFFSET path, kept deliberately so the comparison can be measured
+through the same stack. Optimistic concurrency on `updateDeal` (409 with
+`currentVersion`, plus `If-Match`/`ETag`), pessimistic `SELECT … FOR UPDATE` on the
+stage transition, and `withTransaction` with retry on 40001/40P01 — because
+SERIALIZABLE without a retry loop is an endpoint that randomly 500s.
+
+**Phase 4 — Redis.** The limiter's store swapped and *nothing else changed*, which was
+the point of defining the contract as `hit(key, limit, windowMs)` in Phase 1. The
+window is a Lua script so read-decide-write is atomic, and it takes its clock from
+`redis.call('TIME')` rather than from the application, because three replicas do not
+agree about the time. Opaque refresh tokens stored as SHA-256, rotated on every use,
+with reuse detection that revokes the whole family and an absolute session cap that
+rotation cannot extend. A `jti` denylist gives sign-out real revocation, failing open
+with a counter (the exposure is bounded by the 15-minute token; failing closed would
+401 every request during a Redis blip). Idempotency keys (F-43) and a distributed lock
+whose limits are documented rather than assumed (F-50).
+
+**Phase 5 — Kafka and the outbox.** The event is written to a table in the **same
+transaction** as the domain change, so there is no ordering of "write" and "publish"
+that can lose or invent an event. A publisher polls with `FOR UPDATE SKIP LOCKED`,
+publishes keyed by `deal:<id>` (one partition per aggregate, which is exactly as much
+ordering as the domain needs), and expresses backoff as `available_at` rather than as a
+sleep. The consumer claims each event by inserting `(consumer_group, event_id)` with
+`ON CONFLICT DO NOTHING` **inside the handler's transaction** — at-least-once delivery,
+exactly-once effect — retries a failing handler, then produces to a real DLQ topic so
+one poison message cannot hold a partition forever. `POST → persist+outbox → publish →
+consume → notify` is checkable end to end with `GET /api/notifications`.
+
+**Phase 7 — Kubernetes.** Three API replicas (the number the Phase 4 claim is about),
+one publisher (ordering), three consumers (the partition count). Migrations as a Job
+with an init container that waits for the *result*, three probes answering three
+different questions, `maxUnavailable: 0` plus a PDB, a `preStop` sleep to cover
+eventually-consistent endpoint removal, `readOnlyRootFilesystem` with explicit
+writable mounts, and an HPA on CPU and memory — ADR 0008 records why not a custom
+metric. `scripts/k8s/kind-up.sh` builds both images, loads them, applies everything in
+dependency order and waits at each step; `scripts/k8s/drills.sh` breaks five things
+and asserts the outcome.
+
+### Verified in this environment
+
+- `npm test` → **268 tests across 17 suites**, no database, no Redis, no broker, clean
+  process exit. `npm run lint` → 0 errors. `prettier --check .` → clean.
+- The offline suite is the constraint that shaped several designs: `ioredis` and
+  `kafkajs` are imported **dynamically**, behind factories, and every consumer takes an
+  injected client — so the whole application can be imported and tested with neither
+  driver installed. That is also why the metrics registry is hand-written.
+- SQL is asserted by rendering it. `tests/helpers/fake-pg.js` puts a fake socket under
+  a **real** drizzle instance, so `desc nulls last`, the row-value keyset comparison,
+  `for update skip locked` and `version = version + 1` are read out of the statement
+  that would have gone to Postgres, not out of a mock's call log.
+- Lua is not verified here, and the tests say so. `tests/helpers/fake-redis.js`
+  contains a JavaScript transcription of each script and serialises script execution to
+  model Redis' single thread; `scripts/redis/*.mjs` run the real scripts against a real
+  Redis and assert the same properties. Where the two could disagree, the proof script
+  is the authority.
+
+### Not verified here — must run on the Docker host
+
+The sandbox has no npm registry, no Docker, no k6 and no kubectl, so everything below
+is a committed script rather than a result:
+
+```
+npm install                      # ioredis + kafkajs are new dependencies
+npm run db:migrate               # 0001_deals, 0002_outbox, 0003_notifications
+npm run bench:seed               # users
+npm run db:seed:deals            # 1,000,000 deals, generated by Postgres
+npm run db:explain               # → benchmarks/v3-postgres/explain-*.txt + summary
+npm run db:isolation             # → benchmarks/v3-postgres/isolation-anomalies.txt
+npm run redis:proof:limiter      # 3 replicas: in-process over-admits, Redis is exact
+npm run redis:proof:refresh      # rotation, reuse, concurrency, against real Redis
+npm run events:topics            # explicit topics, 3 partitions
+npm run events:drill -- write    # with Kafka stopped: writes succeed, backlog grows
+npm run events:drill -- drain    # with Kafka started: drains, consumes, dedupes
+npm run k8s:up                   # kind cluster, 3 replicas, migrations, topics
+npm run k8s:drills               # five failure drills, each asserting its outcome
+npm run bench:v7                 # the final matrix against the cluster
+npm run bench:report:v7          # v0 → v7 comparison table
+```
+
+Until those run, the correct statement is "the mechanisms are implemented and the
+offline tests prove their logic" — not any number. Two claims in particular are
+arithmetic until measured: the keyset-versus-OFFSET ratio at 1M rows, and the
+throughput of the full mix at three replicas.
+
+### Exit criteria
+
+- [x] One database driver; transactions, isolation levels and row locking possible in
+      every environment (F-38)
+- [x] Write-heavy entity with composite and partial indexes, each justified by a query
+- [x] Keyset pagination beside the OFFSET path, so the comparison is measurable
+- [x] Optimistic concurrency *and* pessimistic locking, both in the codebase, with the
+      trade documented rather than argued
+- [x] Isolation anomalies demonstrated by script rather than described (F-41, F-42)
+- [x] Rate limiting shared across replicas, with the in-process defect measurable on
+      demand
+- [x] Refresh-token rotation with reuse detection; sign-out that actually revokes
+- [x] Idempotency keys on the create path (F-43)
+- [x] Transactional outbox; no dual write anywhere in the codebase
+- [x] Idempotent consumer, bounded retries, real DLQ topic
+- [x] Kubernetes manifests: probes, HPA, PDB, migrations as a Job, one-command cluster
+- [x] Failure drills scripted, each asserting an expected outcome
+- [x] Findings F-38..F-50 recorded with evidence
+- [ ] 1M-row seed, EXPLAIN captures and the isolation transcript committed
+- [ ] Redis and outbox proof scripts run against real services
+- [ ] v7 matrix executed on the cluster; `SUMMARY.md` with the v0 → v7 table
+- [ ] `docs/INTERVIEW_PHASES_3_TO_7.md` reviewed against the measured numbers
+
 
 
 

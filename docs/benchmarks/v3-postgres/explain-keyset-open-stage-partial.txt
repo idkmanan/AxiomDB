@@ -1,0 +1,32 @@
+# keyset-open-stage-partial
+SQL:select id, created_at from deals
+             where stage = 'diligence' and closed_at is null
+             order by created_at desc nulls last, id desc nulls last limit 20
+-- WITH INDEX (deals_open_created_idx)
+-- median execution 0.084 ms over 3 runs: 0.645, 0.084, 0.069
+Limit  (cost=0.42..1.67 rows=20 width=16) (actual time=0.038..0.045 rows=20 loops=1)
+  Output: id, created_at
+  Buffers: shared hit=4
+  ->  Index Only Scan using deals_open_created_idx on public.deals  (cost=0.42..11.53 rows=178 width=16) (actual time=0.036..0.041 rows=20 loops=1)
+        Output: id, created_at
+        Index Cond: (deals.stage = 'diligence'::deal_stage)
+        Heap Fetches: 0
+        Buffers: shared hit=4
+Query Identifier: -307209501911747726
+Planning Time: 0.121 ms
+Execution Time: 0.084 ms
+-- WITHOUT deals_open_created_idx (dropped inside a transaction, rolled back)
+-- median execution 11.38 ms over 3 runs: 12.054, 11.38, 9.807
+Limit  (cost=0.42..9996.93 rows=20 width=16) (actual time=0.273..11.323 rows=20 loops=1)
+  Output: id, created_at
+  Buffers: shared hit=10591
+  ->  Index Scan using deals_created_at_id_idx on public.deals  (cost=0.42..88969.34 rows=178 width=16) (actual time=0.271..11.314 rows=20 loops=1)
+        Output: id, created_at
+        Filter: ((deals.closed_at IS NULL) AND (deals.stage = 'diligence'::deal_stage))
+        Rows Removed by Filter: 10533
+        Buffers: shared hit=10591
+Query Identifier: -307209501911747726
+Planning:
+  Buffers: shared hit=5
+Planning Time: 0.221 ms
+Execution Time: 11.380 ms

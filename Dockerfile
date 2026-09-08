@@ -1,5 +1,17 @@
 # =============================================================================
-# Multi-stage Dockerfile for Express.js Application with Neon Database
+# Multi-stage Dockerfile
+# =============================================================================
+# Four targets, and the last one is new in Phase 7:
+#
+#   development  all dependencies, hot reload. Used by the compose stacks.
+#   production   production dependencies only, non-root, tini as PID 1.
+#   migrator     production image + drizzle-kit, for the migration Job.
+#
+# WHY A SEPARATE MIGRATOR IMAGE. `drizzle-kit` is a devDependency, so it is deliberately
+# absent from the production image — a runtime container has no business being able to
+# rewrite the schema, and shipping a schema tool into every pod widens the blast radius of
+# a compromised container for no operational benefit. But SOMETHING has to run migrations,
+# and k8s/20-api.yaml runs them as a Job. That Job gets its own image.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -104,3 +116,23 @@ ENTRYPOINT ["tini", "--"]
 
 # Start application
 CMD ["npm", "start"]
+
+# -----------------------------------------------------------------------------
+# Migrator Stage: the schema tool, and nothing that serves traffic
+# -----------------------------------------------------------------------------
+# Used by the `db-migrate` Job in k8s/20-api.yaml. It carries dev dependencies because
+# drizzle-kit is one, and it never listens on a port: its whole lifecycle is "run once,
+# exit 0". Keeping it out of the runtime image is the point — see the header.
+FROM dev-deps AS migrator
+
+ENV NODE_ENV=production
+
+COPY --chown=nodejs:nodejs . .
+
+USER nodejs
+
+ENTRYPOINT ["tini", "--"]
+
+# Deliberately not `npm run db:migrate`: npm adds a process layer between tini and the tool,
+# which swallows the exit code that tells Kubernetes whether the Job succeeded.
+CMD ["npx", "drizzle-kit", "migrate"]

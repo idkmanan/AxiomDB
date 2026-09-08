@@ -21,18 +21,50 @@ import logger from '#config/logger.js';
 import { MemorySlidingWindowStore } from '#rate-limit/sliding-window.js';
 import { POLICIES, keyFor, limitFor, clientIp } from '#rate-limit/policy.js';
 
-// One store for the process. Phase 4 replaces this line with a Redis-backed
-// store implementing the same `hit`/`reset`/`close` contract; nothing below
-// changes.
+// The default store: in-process, and provably wrong across replicas (each pod holds its own
+// Map, so three pods enforce 3x the configured limit). Kept as the default because it needs
+// no dependency, and kept SWITCHABLE because the wrong behaviour is a measurement Phase 4
+// makes — see scripts/redis/limiter-proof.mjs.
 export const store = new MemorySlidingWindowStore().startSweeping(
   Math.max(POLICIES.auth.windowMs, POLICIES.authenticated.windowMs) * 10
 );
 
-/** Counters for the observability work in Phase 6. Cheap enough to always keep. */
+/**
+ * The store actually in use. A module-level binding rather than a parameter because the
+ * limiter is constructed at route-mount time (import time) while Redis connects later, during
+ * startup — so the swap has to be able to happen after the middleware exists.
+ *
+ * Phase 1 promised "Phase 4 replaces this line … nothing below changes". This is that line.
+ */
+let activeStore = store;
+
+/**
+ * Install a different store. Called once from src/server.js when RATE_LIMIT_STORE=redis.
+ * @param {{hit: Function, reset?: Function, close?: Function}} next
+ */
+export function setRateLimitStore(next) {
+  if (!next || typeof next.hit !== 'function') {
+    throw new Error('A rate-limit store must implement hit(key, limit, windowMs)');
+  }
+  activeStore = next;
+  logger.info('Rate-limit store installed', { store: next.constructor?.name });
+  return activeStore;
+}
+
+/** Which store is live — reported by /ready so a deployment cannot lie about it. */
+export const activeStoreName = () => activeStore.constructor?.name ?? 'unknown';
+
+/** Counters, mirrored into Prometheus by src/metrics/collectors.js. Cheap enough to always
+ *  keep — and the reason they exist at all is F-07: Arcjet failed open silently, and a
+ *  limiter whose failures are not counted cannot be distinguished from one that is working. */
 export const rateLimitStats = {
   rejected: 0,
   storeFailuresAllowed: 0,
   storeFailuresRejected: 0,
+  /** A getter rather than a field, so nothing has to remember to update it. */
+  get keysTracked() {
+    return typeof activeStore.size === 'number' ? activeStore.size : 0;
+  },
 };
 
 /**
@@ -62,7 +94,9 @@ function setLimitHeaders(res, decision) {
 export function rateLimit(policyName, deps = {}) {
   const policy = POLICIES[policyName];
   if (!policy) throw new Error(`Unknown rate-limit policy: ${policyName}`);
-  const backing = deps.store || store;
+  // Resolved per request, not captured at construction: the Redis store is installed during
+  // startup, after the routers have already built their middleware.
+  const storeFor = () => deps.store || activeStore;
 
   return async function rateLimitMiddleware(req, res, next) {
     const key = keyFor(policy, req);
@@ -70,7 +104,7 @@ export function rateLimit(policyName, deps = {}) {
 
     let decision;
     try {
-      decision = await backing.hit(key, limit, policy.windowMs);
+      decision = await storeFor().hit(key, limit, policy.windowMs);
     } catch (e) {
       // The branch Arcjet got wrong. Explicit, per-policy, and LOUD — an
       // unavailable limiter is an incident either way, and the difference
@@ -130,7 +164,10 @@ export function rateLimit(policyName, deps = {}) {
 
 /** Release the sweeper timer. Called from the shutdown sequence in server.js. */
 export function closeRateLimiter() {
+  // Both, and in this order: the in-process store always exists (it holds a timer even when
+  // Redis took over), and the active store may be a different object with its own resources.
   store.close();
+  if (activeStore !== store && typeof activeStore.close === 'function') activeStore.close();
 }
 
 export default rateLimit;

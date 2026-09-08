@@ -35,6 +35,12 @@ export default [
         setInterval: 'readonly',
         clearInterval: 'readonly',
         setImmediate: 'readonly',
+        // Node 18+ globals. `fetch` is used by scripts/redis/limiter-proof.mjs to drive three
+        // replicas without adding an HTTP client dependency — the whole point of these scripts
+        // is that they run with what is already installed.
+        fetch: 'readonly',
+        AbortController: 'readonly',
+        structuredClone: 'readonly',
       },
     },
     rules: {

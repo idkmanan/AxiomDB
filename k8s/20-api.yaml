@@ -1,0 +1,265 @@
+# =============================================================================
+# Migrations as a Job, and the API Deployment that waits for it.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: acquisitions
+  annotations:
+    acquisitions/note: >-
+      Re-apply with a new name (or delete first) for each deploy: a completed Job is immutable, so
+      `kubectl apply` on an unchanged Job does nothing rather than re-running it. In a real pipeline
+      this is generated per release (db-migrate-<sha>) or driven by a Helm pre-upgrade hook.
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          # The migrator image, not the runtime one: drizzle-kit is a devDependency and is
+          # deliberately absent from the image that serves traffic (see the Dockerfile header).
+          image: acquisitions-migrator:local
+          imagePullPolicy: IfNotPresent
+          # ONE pod runs this, which is the entire reason it is a Job. Three API replicas each
+          # running `db:migrate` in an init container is three concurrent migration runs against one
+          # database — see the header of scripts/db/wait-for-schema.mjs.
+          command: ['npx', 'drizzle-kit', 'migrate']
+          envFrom:
+            - configMapRef:
+                name: acquisitions-config
+            - secretRef:
+                name: acquisitions-secrets
+          resources:
+            requests: { cpu: '100m', memory: '128Mi' }
+            limits: { cpu: '500m', memory: '512Mi' }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: acquisitions
+  labels:
+    app: api
+spec:
+  # NodePort so `scripts/k8s/kind-up.sh` can map it to the host and k6 can drive it from outside the
+  # cluster. A real deployment fronts this with an Ingress or a LoadBalancer; the application is
+  # unaffected either way, which is why TRUST_PROXY is a config value rather than an assumption.
+  type: NodePort
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: acquisitions
+  labels:
+    app: api
+spec:
+  # THREE REPLICAS, which is the number the Phase 4 claim is about: a shared Redis window means
+  # three pods enforce the CONFIGURED limit rather than three times it.
+  replicas: 3
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # maxUnavailable 0: never drop below three ready pods during a deploy, so the rollout cannot
+      # itself cause the 503s the drills are looking for. Combined with the PDB below, capacity is
+      # protected against both voluntary disruptions.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: api
+      annotations:
+        # Restart pods when configuration changes. Without this, editing the ConfigMap changes
+        # nothing until something else triggers a rollout, and the running pods keep the old values
+        # while `kubectl get configmap` shows the new ones — a discrepancy that has cost everyone at
+        # least one afternoon. (A checksum annotation is the Helm idiom; here it is manual.)
+        acquisitions/config-note: 'bump this value or run `kubectl rollout restart` after editing the ConfigMap'
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      initContainers:
+        # Waits for the migration Job's RESULT rather than for the Job object to exist. "Applied
+        # first" and "finished first" are different things, and a pod that starts against an old
+        # schema fails in whichever endpoint touches the new column.
+        - name: wait-for-schema
+          image: acquisitions:local
+          imagePullPolicy: IfNotPresent
+          command: ['node', 'scripts/db/wait-for-schema.mjs', '--timeout', '180']
+          envFrom:
+            - secretRef:
+                name: acquisitions-secrets
+          resources:
+            requests: { cpu: '50m', memory: '64Mi' }
+            limits: { cpu: '250m', memory: '256Mi' }
+      containers:
+        - name: api
+          image: acquisitions:local
+          imagePullPolicy: IfNotPresent
+          command: ['node', 'src/index.js']
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: acquisitions-config
+            - secretRef:
+                name: acquisitions-secrets
+          # -------------------------------------------------------------------
+          # THREE PROBES, THREE DIFFERENT QUESTIONS. Conflating them is the most common
+          # probe mistake and it turns a dependency blip into an outage.
+          # -------------------------------------------------------------------
+          startupProbe:
+            # "Has it finished booting?" The pool pre-warm (F-39) runs before the listener opens, so
+            # startup is measurably longer than a bare `app.listen`. Without a startup probe, the
+            # liveness probe would begin during boot and restart a pod that was working perfectly —
+            # and a restart loop during startup looks exactly like a crash.
+            httpGet: { path: /health, port: http }
+            periodSeconds: 2
+            failureThreshold: 30 # up to 60s to boot
+          livenessProbe:
+            # "Is this process able to serve at all?" In-process state only — /health checks no
+            # dependency on purpose (src/app.js). A liveness probe that touched Postgres would
+            # restart every replica during a database blip, removing capacity for a problem
+            # restarting cannot fix.
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            # "Should traffic come here?" This one DOES check the database, and it flips to 503 the
+            # moment SIGTERM lands so the endpoints controller removes the pod before the listener
+            # closes. That gap is the difference between a rolling deploy that drops requests and
+            # one that does not.
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          lifecycle:
+            preStop:
+              # Belt and braces with SHUTDOWN_READINESS_DELAY_MS. Endpoint removal is eventually
+              # consistent across kube-proxy on every node, so a pod can still receive requests for
+              # a moment after it starts terminating. Sleeping here before SIGTERM reaches node
+              # widens that window in the safe direction.
+              exec:
+                command: ['sleep', '5']
+          resources:
+            # requests == what the scheduler reserves and what the HPA measures against; limits ==
+            # the ceiling. CPU limit deliberately well above the request: this workload is bursty
+            # (bcrypt at 54.8 ms per compare, F-05), and a tight CPU limit means throttling that
+            # presents as latency nobody can explain.
+            requests: { cpu: '250m', memory: '192Mi' }
+            limits: { cpu: '1', memory: '512Mi' }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ['ALL']
+          volumeMounts:
+            # A read-only root filesystem needs somewhere to write. winston writes to ./logs and
+            # anything using os.tmpdir() needs /tmp; both are emptyDir rather than a relaxed root.
+            - name: logs
+              mountPath: /app/logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      # Spread the three replicas across nodes where possible. On a single-node kind cluster this
+      # is a no-op (ScheduleAnyway), which is the point of the soft constraint: the manifest is
+      # correct on a real cluster without being unschedulable on a local one.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+  namespace: acquisitions
+spec:
+  # `minAvailable: 2` of 3, not `maxUnavailable: 1`, because the two express different intents when
+  # the replica count changes: this one keeps saying "at least two" if someone scales to 10, while
+  # maxUnavailable would allow nine to go at once. A PDB constrains VOLUNTARY disruptions only —
+  # node drains and evictions — and does nothing for a crash, which is what the drills test.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: acquisitions
+  annotations:
+    acquisitions/note: >-
+      CPU and memory only, deliberately. Scaling on a custom metric (requests per second, or outbox
+      depth) needs Prometheus plus prometheus-adapter, which is Phase 6 work; the /metrics endpoint
+      this project exposes is ready for it, and the HPA target is the only line that would change.
+      Requires metrics-server — scripts/k8s/kind-up.sh installs it, and without it the HPA reports
+      <unknown> and never scales.
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 3
+  maxReplicas: 9
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # 70% of the REQUEST (250m), so ~175m sustained per pod triggers a scale-up. Tuned against
+          # the measured shape of this workload: bcrypt makes CPU the binding constraint long before
+          # memory, and 70% leaves room to absorb a burst while new pods start.
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      # No stabilisation window: a traffic spike should be answered immediately.
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      # Five minutes, and one pod at a time. Scaling down fast is how an autoscaler oscillates:
+      # removing capacity raises utilisation on what is left, which triggers a scale-up.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60

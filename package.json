@@ -5,19 +5,28 @@
   "main": "index.js",
   "imports": {
     "#src/*": "./src/*",
+    "#auth/*": "./src/auth/*",
     "#config/*": "./src/config/*",
     "#controllers/*": "./src/controllers/*",
+    "#events/*": "./src/events/*",
     "#middleware/*": "./src/middleware/*",
+    "#metrics/*": "./src/metrics/*",
     "#models/*": "./src/models/*",
     "#rate-limit/*": "./src/rate-limit/*",
+    "#redis/*": "./src/redis/*",
     "#routes/*": "./src/routes/*",
     "#services/*": "./src/services/*",
     "#utils/*": "./src/utils/*",
-    "#validations/*": "./src/validations/*"
+    "#validations/*": "./src/validations/*",
+    "#workers/*": "./src/workers/*"
   },
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "worker:publisher": "node src/workers/publisher.js",
+    "worker:consumer": "node src/workers/consumer.js",
+    "events:topics": "node scripts/events/topics.mjs",
+    "events:drill": "node scripts/events/outbox-drill.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -25,6 +34,11 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
+    "db:seed:deals": "node benchmarks/scripts/seed-deals.mjs",
+    "db:explain": "node benchmarks/scripts/explain.mjs",
+    "db:isolation": "node scripts/db/isolation-demo.mjs",
+    "redis:proof:limiter": "node scripts/redis/limiter-proof.mjs",
+    "redis:proof:refresh": "node scripts/redis/refresh-proof.mjs",
     "dev:docker": "bash ./scripts/dev.sh",
     "prod:docker": "bash ./scripts/prod.sh",
     "test": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest",
@@ -37,7 +51,12 @@
     "bench:report:v1": "node benchmarks/scripts/report.mjs --phase v1 --dir benchmarks/v1-correctness/results --out benchmarks/v1-correctness/SUMMARY.md --compare benchmarks/v0-baseline/results",
     "bench:attribute": "node benchmarks/scripts/attribute-failures.mjs",
     "bench:attribute:v1": "node benchmarks/scripts/attribute-failures.mjs --dir benchmarks/v1-correctness/results",
-    "bench:smoke": "k6 run -e VUS=10 -e DURATION=20s -e RAMP_UP=5s -e RAMP_DOWN=5s -e RUN_TAG=smoke benchmarks/k6/realistic.js"
+    "bench:smoke": "k6 run -e VUS=10 -e DURATION=20s -e RAMP_UP=5s -e RAMP_DOWN=5s -e RUN_TAG=smoke benchmarks/k6/realistic.js",
+    "bench:v7": "PHASE=v7 bash ./benchmarks/scripts/run-cluster.sh",
+    "bench:report:v7": "node benchmarks/scripts/report.mjs --phase v7 --dir benchmarks/v7-final/results --out benchmarks/v7-final/SUMMARY.md --compare benchmarks/v0-baseline/results",
+    "k8s:up": "bash ./scripts/k8s/kind-up.sh",
+    "k8s:down": "bash ./scripts/k8s/kind-up.sh --down",
+    "k8s:drills": "bash ./scripts/k8s/drills.sh"
   },
   "repository": {
     "type": "git",
@@ -52,7 +71,6 @@
   },
   "homepage": "https://github.com/idkmanan/acquisitions#readme",
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -60,7 +78,9 @@
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
+    "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.3",
+    "kafkajs": "^2.2.4",
     "pg": "^8.13.1",
     "winston": "^3.19.0",
     "zod": "^4.4.3"

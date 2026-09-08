@@ -1,5 +1,5 @@
 import express from 'express';
-import { signin, signout, signup } from '#controllers/auth.controller.js';
+import { signin, signout, signup, refresh } from '#controllers/auth.controller.js';
 import { rateLimit } from '#middleware/rate-limit.middleware.js';
 
 const router = express.Router();
@@ -19,9 +19,23 @@ const authLimiter = rateLimit('auth');
 router.post('/sign-up', authLimiter, signup);
 router.post('/sign-in', authLimiter, signin);
 
-// Sign-out is not limited. It only clears a cookie, costs nothing, and rate
-// limiting the exit from a session means a user who suspects their token is
-// compromised is told to wait — the wrong trade in both directions.
+// REFRESH IS RATE LIMITED TOO, and it belongs on the auth bucket rather than the
+// authenticated one: the caller presents no access token, so there is no `req.user` to key on,
+// and the endpoint's whole purpose is to hand out credentials. An unthrottled refresh endpoint
+// is a free oracle for testing stolen tokens — each attempt either mints a session or reveals
+// that a token has already been rotated.
+//
+// It fails CLOSED with the rest of the auth policy: if the limiter's store is unreachable,
+// refusing to refresh costs a user a re-login, while allowing unlimited attempts costs a
+// brute-force window. Note the interaction worth knowing about: the store that limits this
+// endpoint and the store that holds the refresh tokens are the same Redis, so during a Redis
+// outage this endpoint is 503 either way.
+router.post('/refresh', authLimiter, refresh);
+
+// Sign-out is not limited. It now performs real revocation (the access token's `jti` goes on
+// the denylist and the refresh family is killed), and rate limiting the exit from a session
+// means a user who suspects their token is compromised is told to wait — the wrong trade in
+// both directions. It is also idempotent and cheap: two Redis writes at most.
 router.post('/sign-out', signout);
 
 export default router;

@@ -17,12 +17,14 @@
 //    then mint an admin token. src/config/env.js now throws in production rather
 //    than defaulting, and flags the development fallback.
 //
-// STILL MISSING, AND PHASE 4'S JOB: this is a bearer token with no revocation.
-// A 15-minute window is a mitigation, not a fix. Phase 4 adds opaque refresh
-// tokens in Redis with rotation and reuse detection, plus a JTI denylist for
-// instant revocation. Until then, logging out clears the cookie and nothing more
-// — which is the honest description of what `POST /sign-out` does today.
+// PHASE 4 CLOSES THE REVOCATION GAP. Every token now carries a `jti`, and
+// src/auth/denylist.service.js writes that id to Redis on sign-out with a TTL equal to
+// the token's remaining life, so `authenticate` can refuse it immediately. The long-lived
+// credential is an opaque refresh token in Redis with rotation and reuse detection
+// (src/auth/refresh.service.js) — deliberately not a JWT, because the whole point is that
+// it can be deleted.
 // ---------------------------------------------------------------------------
+import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import logger from '#config/logger.js';
 import config from '#config/env.js';
@@ -40,6 +42,11 @@ export const jwttoken = {
     try {
       return jwt.sign(payload, config.session.jwtSecret, {
         expiresIn: config.session.ttlSeconds,
+        // A unique id per token, so a single session can be revoked without invalidating the
+        // signing key for everyone. `jsonwebtoken` will not generate one, and a claim that
+        // does not exist cannot be denylisted — which is why this line is the difference
+        // between a sign-out that works and one that only clears a cookie.
+        jwtid: randomUUID(),
       });
     } catch (e) {
       logger.error('Failed to sign token', e);

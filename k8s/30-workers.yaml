@@ -1,0 +1,200 @@
+# =============================================================================
+# The workers: one publisher, three consumers.
+# =============================================================================
+# THE REPLICA COUNTS ARE THE INTERESTING PART OF THIS FILE, and they are different numbers
+# for different reasons:
+#
+#   publisher: 1  — ordering. `FOR UPDATE SKIP LOCKED` lets N publishers claim disjoint rows
+#                   safely, but two publishers can still send row 2 before row 1 and reorder
+#                   events for one aggregate, which defeats the partition key. One publisher,
+#                   with the Redis lock covering the moment a rolling deploy runs two.
+#
+#   consumer: 3   — parallelism, capped by the topic. Kafka gives each partition to exactly one
+#                   consumer in a group, so with 3 partitions a fourth replica is an idle
+#                   process. Scaling consumers means adding partitions first — and raising the
+#                   partition count re-hashes keys, so it is not a free knob either.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher
+  namespace: acquisitions
+  labels:
+    app: publisher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: publisher
+  strategy:
+    # Recreate, not RollingUpdate. A rolling update of a single-replica ordering-sensitive worker
+    # deliberately runs two pods at once, which is exactly the overlap the Redis lock exists to
+    # tolerate — but tolerating it and inviting it are different things. The cost is a few seconds
+    # where nothing publishes, and unpublished events simply wait in the table.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: publisher
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      initContainers:
+        - name: wait-for-schema
+          image: acquisitions:local
+          imagePullPolicy: IfNotPresent
+          command:
+            ['node', 'scripts/db/wait-for-schema.mjs', '--tables', 'outbox', '--timeout', '180']
+          envFrom:
+            - secretRef:
+                name: acquisitions-secrets
+          resources:
+            requests: { cpu: '50m', memory: '64Mi' }
+            limits: { cpu: '250m', memory: '256Mi' }
+      containers:
+        - name: publisher
+          image: acquisitions:local
+          imagePullPolicy: IfNotPresent
+          command: ['node', 'src/workers/publisher.js']
+          ports:
+            - containerPort: 3100
+              name: http
+          env:
+            - name: PUBLISHER_PORT
+              value: '3100'
+          envFrom:
+            - configMapRef:
+                name: acquisitions-config
+            - secretRef:
+                name: acquisitions-secrets
+          livenessProbe:
+            # In-process state only, same as the API. A publisher that cannot reach Kafka must NOT be
+            # restarted: restarting does nothing for the broker and removes the process that will
+            # drain the backlog when it returns.
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            # The database is the queue, so it is the readiness gate. Kafka is deliberately not —
+            # "broker down, backlog growing" is a working publisher, and the drill proves it.
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests: { cpu: '100m', memory: '128Mi' }
+            limits: { cpu: '500m', memory: '384Mi' }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ['ALL'] }
+          volumeMounts:
+            - { name: logs, mountPath: /app/logs }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: logs, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer
+  namespace: acquisitions
+  labels:
+    app: consumer
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: consumer
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # One at a time. Every consumer that joins or leaves triggers a rebalance, during which the
+      # group processes nothing; replacing all three at once means one long stall instead of three
+      # short ones.
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: consumer
+    spec:
+      # Longer than the API's 30s: a consumer should finish the message it is holding and leave the
+      # group cleanly. `consumer.disconnect()` triggers one rebalance immediately instead of the
+      # group waiting out a 30s session timeout with stalled partitions.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      initContainers:
+        - name: wait-for-schema
+          image: acquisitions:local
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - scripts/db/wait-for-schema.mjs
+            - --tables
+            - processed_events,notifications
+            - --timeout
+            - '180'
+          envFrom:
+            - secretRef:
+                name: acquisitions-secrets
+          resources:
+            requests: { cpu: '50m', memory: '64Mi' }
+            limits: { cpu: '250m', memory: '256Mi' }
+      containers:
+        - name: consumer
+          image: acquisitions:local
+          imagePullPolicy: IfNotPresent
+          command: ['node', 'src/workers/consumer.js']
+          ports:
+            - containerPort: 3200
+              name: http
+          env:
+            - name: CONSUMER_PORT
+              value: '3200'
+          envFrom:
+            - configMapRef:
+                name: acquisitions-config
+            - secretRef:
+                name: acquisitions-secrets
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests: { cpu: '100m', memory: '128Mi' }
+            limits: { cpu: '500m', memory: '384Mi' }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ['ALL'] }
+          volumeMounts:
+            - { name: logs, mountPath: /app/logs }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: logs, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: consumer
+  namespace: acquisitions
+spec:
+  # Two of three, so a node drain cannot take the whole consumer group out at once and leave the
+  # backlog growing. The publisher deliberately has NO PDB: it is a single replica, so any budget
+  # would either block drains entirely or permit the only pod to go.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: consumer

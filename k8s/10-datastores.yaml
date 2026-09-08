@@ -1,0 +1,163 @@
+# =============================================================================
+# Postgres, Redis and Kafka for a LOCAL cluster.
+# =============================================================================
+# WHAT THIS IS AND IS NOT. These three exist so `scripts/k8s/kind-up.sh` produces a
+# working cluster in one command, which is what makes the 3-replica benchmark and the
+# failure drills reproducible by somebody else. They are NOT a recommendation to run
+# stateful infrastructure this way in production:
+#
+#   * one replica each, so any of them is a single point of failure
+#   * `emptyDir` for Postgres and Kafka, so data dies with the pod. Deliberate for a
+#     throwaway cluster — a PVC that survives `kind delete cluster` does not exist
+#     anyway, and a PVC that survives a pod restart would hide the fact that these
+#     are disposable.
+#   * no backups, no TLS, no auth on Redis
+#
+# In a real deployment these are managed services (RDS/Cloud SQL, ElastiCache/MemoryStore,
+# MSK/Confluent) or operator-managed StatefulSets, and the only thing that changes in the
+# application is the three connection strings in the Secret. That property — that the app
+# does not know the difference — is worth more than a hand-rolled StatefulSet.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: acquisitions
+spec:
+  # Headless: a StatefulSet member is addressed by a stable DNS name, and the application
+  # needs one endpoint rather than a load-balanced pool of them. Load balancing across
+  # database replicas is a decision the connection string should make, not the Service.
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: acquisitions
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16.4-alpine
+          args:
+            # 200 connections, matching docker-compose.bench.yml, because three API replicas at
+            # PG_POOL_MAX=20 plus two workers plus migrations needs headroom over the default 100.
+            - postgres
+            - -c
+            - max_connections=200
+            - -c
+            - shared_preload_libraries=pg_stat_statements
+            - -c
+            - pg_stat_statements.track=all
+            - -c
+            - log_min_duration_statement=200
+          env:
+            - name: POSTGRES_USER
+              value: acq
+            - name: POSTGRES_DB
+              value: acquisitions
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: acquisitions-secrets
+                  key: POSTGRES_PASSWORD
+            # Without this, initdb refuses to run in a directory that has a `lost+found`, which is
+            # exactly what a mounted volume has. A subdirectory is the documented fix.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ['pg_isready', '-U', 'acq', '-d', 'acquisitions']
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ['pg_isready', '-U', 'acq', '-d', 'acquisitions']
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: '250m', memory: '256Mi' }
+            limits: { cpu: '1', memory: '1Gi' }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: acquisitions
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: acquisitions
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.4.1-alpine
+          args:
+            # Same reasoning as the compose stack: no persistence for data that is either
+            # reconstructible or a re-establishable session, and `noeviction` so memory pressure is
+            # an error the application counts rather than a silent correctness change (an evicted
+            # refresh token signs a user out; an evicted window raises their limit).
+            [
+              'redis-server',
+              '--save',
+              '',
+              '--appendonly',
+              'no',
+              '--maxmemory',
+              '256mb',
+              '--maxmemory-policy',
+              'noeviction',
+            ]
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ['redis-cli', 'ping']
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ['redis-cli', 'ping']
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: '100m', memory: '64Mi' }
+            limits: { cpu: '500m', memory: '384Mi' }

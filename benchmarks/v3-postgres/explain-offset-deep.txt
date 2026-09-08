@@ -1,0 +1,15 @@
+# offset-deep
+SQL:select id, owner_id, title, company, stage, amount_cents, currency, version,
+                   created_at, updated_at, closed_at
+              from deals order by created_at desc nulls last, id desc nulls last limit 20 offset 950000
+-- WITH INDEX (no index dropped for this query)
+-- median execution 657.677 ms over 3 runs: 719.51, 630.109, 657.677
+Limit  (cost=82145.47..82147.20 rows=20 width=79) (actual time=657.583..657.606 rows=20 loops=1)
+  Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+  Buffers: shared hit=953590
+  ->  Index Scan using deals_created_at_id_idx on public.deals  (cost=0.42..86469.33 rows=1000005 width=79) (actual time=0.021..618.390 rows=950020 loops=1)
+        Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+        Buffers: shared hit=953590
+Query Identifier: 2281345033785594086
+Planning Time: 0.076 ms
+Execution Time: 657.677 ms

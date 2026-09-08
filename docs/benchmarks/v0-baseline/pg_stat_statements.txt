@@ -1,0 +1,33 @@
+CREATE EXTENSION
+ calls | total_ms | mean_ms |  rows   |                                           query                                            
+-------+----------+---------+---------+--------------------------------------------------------------------------------------------
+  5090 | 11220.96 |    2.20 | 5095090 | select "id", "email", "name", "role", "created_at", "updated_at" from "users"
+  5100 |   381.58 |    0.07 |    5100 | select "id", "name", "email", "password", "role", "created_at", "updated_at" from "users" 
+  5084 |   320.62 |    0.06 |    5084 | select "id", "email", "name", "role", "created_at", "updated_at" from "users" where "users
+     1 |    48.38 |   48.38 |       0 | CREATE EXTENSION IF NOT EXISTS pg_stat_statements
+     1 |    33.45 |   33.45 |       0 | CREATE DATABASE "benchdb"
+     1 |    21.05 |   21.05 |       0 | CREATE TABLE IF NOT EXISTS users (                                                        +
+       |          |         |         |         id serial PRIMARY KEY NOT NULL,                                                   +
+       |          |         |         |         name va
+     2 |    18.91 |    9.46 |    1000 | INSERT INTO users (name, email, password, role)                                           +
+       |          |         |         |          VALUES ($1, $2, $3, $4), ($5, $6,
+     4 |    14.82 |    3.71 |       0 | -- Register a view on the function for ease of use.                                       +
+       |          |         |         | CREATE VIEW pg_stat_statements AS                                                         +
+       |          |         |         |   SE
+     1 |     4.34 |    4.34 |       0 | /* contrib/pg_stat_statements/pg_stat_statements--1.4.sql */                              +
+       |          |         |         |                                                                                           +
+       |          |         |         | -- complain if script is sou
+     1 |     4.02 |    4.02 |       0 | ANALYZE users
+     3 |     3.22 |    1.07 |       0 | /* Then we can drop them */                                                               +
+       |          |         |         | DROP VIEW pg_stat_statements
+     4 |     2.65 |    0.66 |       0 | GRANT SELECT ON pg_stat_statements TO PUBLIC
+     3 |     2.28 |    0.76 |       0 | /* contrib/pg_stat_statements/pg_stat_statements--1.7--1.8.sql */                         +
+       |          |         |         |                                                                                           +
+       |          |         |         | -- complain if script i
+     1 |     1.02 |    1.02 |       0 | /* Then we can drop them */                                                               +
+       |          |         |         | DROP FUNCTION pg_stat_statements_reset()
+     1 |     0.92 |    0.92 |       0 | CREATE FUNCTION pg_stat_statements(IN showtext boolean,                                   +
+       |          |         |         |     OUT userid oid,                                                                       +
+       |          |         |         |     OUT dbid o
+(15 rows)
+

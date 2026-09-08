@@ -1,0 +1,54 @@
+# keyset-deep
+SQL:select id, owner_id, title, company, stage, amount_cents, currency, version,
+                   created_at, updated_at, closed_at
+              from deals
+             where (created_at, id) < ($1::timestamptz, $2::bigint)
+             order by created_at desc nulls last, id desc nulls last limit 20
+PARAMS: ["2025-09-25T19:19:20.944Z","46814"]
+-- WITH INDEX (deals_created_at_id_idx)
+-- median execution 0.088 ms over 3 runs: 0.15, 0.088, 0.068
+Limit  (cost=0.42..23.17 rows=20 width=79) (actual time=0.030..0.060 rows=20 loops=1)
+  Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+  Buffers: shared hit=23
+  ->  Index Scan using deals_created_at_id_idx on public.deals  (cost=0.42..57749.04 rows=50788 width=79) (actual time=0.029..0.057 rows=20 loops=1)
+        Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+        Index Cond: (ROW(deals.created_at, deals.id) < ROW('2025-09-25 19:19:20.944+00'::timestamp with time zone, '46814'::bigint))
+        Buffers: shared hit=23
+Query Identifier: -771268477540572293
+Planning Time: 0.100 ms
+Execution Time: 0.088 ms
+-- WITHOUT deals_created_at_id_idx (dropped inside a transaction, rolled back)
+-- median execution 210.541 ms over 3 runs: 52.669, 210.541, 300.525
+Limit  (cost=21833.17..21835.50 rows=20 width=79) (actual time=203.290..210.461 rows=20 loops=1)
+  Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+  Buffers: shared hit=14050
+  ->  Gather Merge  (cost=21833.17..26771.31 rows=42324 width=79) (actual time=203.288..210.455 rows=20 loops=1)
+        Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=14050
+        ->  Sort  (cost=20833.14..20886.05 rows=21162 width=79) (actual time=196.174..196.176 rows=16 loops=3)
+              Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+              Sort Key: deals.created_at DESC NULLS LAST, deals.id DESC NULLS LAST
+              Sort Method: top-N heapsort  Memory: 29kB
+              Buffers: shared hit=14050
+              Worker 0:  actual time=192.031..192.034 rows=20 loops=1
+                Sort Method: top-N heapsort  Memory: 29kB
+                Buffers: shared hit=4275
+              Worker 1:  actual time=193.719..193.722 rows=20 loops=1
+                Sort Method: top-N heapsort  Memory: 29kB
+                Buffers: shared hit=4425
+              ->  Parallel Seq Scan on public.deals  (cost=0.00..20270.03 rows=21162 width=79) (actual time=0.016..191.973 rows=16668 loops=3)
+                    Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+                    Filter: (ROW(deals.created_at, deals.id) < ROW('2025-09-25 19:19:20.944+00'::timestamp with time zone, '46814'::bigint))
+                    Rows Removed by Filter: 316667
+                    Buffers: shared hit=14020
+                    Worker 0:  actual time=0.016..188.150 rows=15187 loops=1
+                      Buffers: shared hit=4260
+                    Worker 1:  actual time=0.021..189.705 rows=15692 loops=1
+                      Buffers: shared hit=4410
+Query Identifier: -771268477540572293
+Planning:
+  Buffers: shared hit=5
+Planning Time: 0.208 ms
+Execution Time: 210.541 ms

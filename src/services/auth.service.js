@@ -73,20 +73,40 @@ export const authenticateUser = async (email, password) => {
  * promoting a user is a separate authenticated admin-only operation
  * (src/controllers/users.controller.js:86-89).
  */
-export const createUser = async ({ name, password, email }) => {
-  const existing = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-  if (existing.length > 0) {
-    throw new AppError('User with this email already exists', 409, { code: 'EMAIL_TAKEN' });
-  }
-
+export const createUser = async ({ name, password, email }, { executor = db } = {}) => {
+  // NO EXISTENCE CHECK, AND THAT IS THE PHASE 3 FIX — FINDING F-41.
+  //
+  // What was here in v0 and in Phase 1:
+  //
+  //   const existing = await db.select({id}).from(users).where(eq(users.email, email))
+  //   if (existing.length > 0) throw new AppError(…409…)
+  //   …then INSERT
+  //
+  // The Phase 1 comment promised that Phase 3 would "wrap it in a transaction where it
+  // becomes the worked example for isolation levels". Working through it produced a
+  // better answer, and the fact that the plan was wrong is the interesting part:
+  //
+  // A TRANSACTION WOULD NOT HAVE FIXED IT. At READ COMMITTED — the Postgres default —
+  // each statement takes a fresh snapshot of committed data, and an uncommitted INSERT
+  // in another transaction is invisible. So both callers run the SELECT, both see
+  // nothing, both INSERT, and one gets a unique-violation on COMMIT. `BEGIN` changes
+  // the failure's timing and nothing about its existence. Only SERIALIZABLE would
+  // detect it, at the cost of a 40001 that has to be retried — for a case the unique
+  // index already handles perfectly.
+  //
+  // So the check is DELETED rather than defended. The unique constraint from
+  // drizzle/0000_dapper_hedge_knight.sql:10 is the serialization point; it is atomic,
+  // it costs nothing extra, and it is enforced against every writer including psql and
+  // the seeder. The 23505 handler below stops being a fallback for a lost race and
+  // becomes the primary path — which also removes one round trip from every signup.
+  //
+  // scripts/db/isolation-demo.mjs demonstrates all three behaviours (READ COMMITTED
+  // both-pass, SERIALIZABLE 40001, unique-constraint 23505) against a real database
+  // rather than asserting them here.
   const password_hash = await hashPassword(password);
 
   try {
-    const [newUser] = await db
+    const [newUser] = await executor
       .insert(users)
       .values({ name, email, password: password_hash, role: 'user' })
       .returning({
@@ -99,30 +119,14 @@ export const createUser = async ({ name, password, email }) => {
     logger.info('User created', { userId: newUser.id });
     return newUser;
   } catch (e) {
-    // THE RACE, and why this catch exists.
-    //
-    // The SELECT above and this INSERT are two statements with no transaction
-    // around them, so two concurrent sign-ups for the same address both pass the
-    // existence check. Only the unique constraint from
-    // drizzle/0000_dapper_hedge_knight.sql:10 stops the duplicate row.
-    //
-    // In v0 that constraint violation propagated unhandled and the loser of the
-    // race received a 500 — even though auth.controller.js:32 was written to
-    // return 409. Same data outcome, wrong status, and a 500 on a dashboard means
-    // "we have a bug" rather than "a client raced itself".
-    //
-    // Translating 23505 makes the RESPONSE correct. It does not make the code
-    // correct: this is still check-then-act, and Phase 3 wraps it in a
-    // transaction where it becomes the worked example for isolation levels.
-    //
     // `pgCodeOf` walks the cause chain rather than reading `e.code`, and that is
-    // finding F-36: drizzle rethrows every driver failure as a DrizzleQueryError
-    // whose own message is "Failed query: …" and which carries no code, so the
-    // original `e?.code === '23505'` never matched and the race still produced a
-    // 500. The unit test passed because it constructed a raw pg-shaped error
-    // rather than the wrapped shape the application actually throws.
+    // finding F-36: drizzle rethrows every driver failure as a DrizzleQueryError whose
+    // own message is "Failed query: …" and which carries no code, so the original
+    // `e?.code === '23505'` never matched and a duplicate signup still produced a 500.
+    // The unit test passed because it constructed a raw pg-shaped error rather than the
+    // wrapped shape the application actually throws.
     if (pgCodeOf(e) === '23505') {
-      logger.warn('Signup lost a race to the unique constraint on users.email');
+      logger.info('Signup rejected by the unique constraint on users.email');
       throw new AppError('User with this email already exists', 409, {
         code: 'EMAIL_TAKEN',
         cause: e,

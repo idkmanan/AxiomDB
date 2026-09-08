@@ -5,13 +5,21 @@ working JSON API — cookie session auth, RBAC, rate limiting, pagination,
 graceful shutdown — and it is being rebuilt in phases, where each phase fixes
 one class of problem and then has to produce a measured claim before it counts
 as finished. The running record of what changed, why, and what it cost is
-[PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md); the method behind every number is
-[BENCHMARKING.md](BENCHMARKING.md).
+[docs/project-management/lifecycle.md](docs/project-management/lifecycle.md); the method behind every number is
+[docs/getting-started/benchmarking-guide.md](docs/getting-started/benchmarking-guide.md).
 
 Phase 0 measured the unmodified application. Phase 1 fixed what those
 measurements pointed at, in the order the measurements ranked them rather than
-the order the defects were noticed. Phase 1 is code complete and its benchmark
-has not run yet, so nothing here quotes a Phase 1 performance number — the only
+the order the defects were noticed. Phases 3, 4, 5 and 7 then built the
+distributed half: a write-heavy entity with keyset pagination over a million
+rows, transactions and row locking, a rate limiter shared across replicas,
+refresh-token rotation with reuse detection, a transactional outbox onto Kafka
+with an idempotent consumer, and Kubernetes manifests that run three replicas.
+
+**No performance number here is measured yet.** The environment those phases were
+built in has no Docker, no Redis, no Kafka and no npm registry, so every claim
+that needs a real service is a committed script rather than a result — see
+"Not verified here" in [docs/project-management/lifecycle.md](docs/project-management/lifecycle.md). The only
 figures below are labelled v0.
 
 ## Status
@@ -20,15 +28,60 @@ figures below are labelled v0.
 |---|---|---|
 | 0 — Baseline measurement | Complete; F-01..F-20 recorded | Reproducible harness + v0 numbers |
 | 1 — Correctness & security | Code complete, v1 matrix pending | Defect-free baseline + measured v0→v1 delta |
-| 2 — TypeScript migration | Not started | Strict-typed source |
-| 3 — Postgres foundation | Not started (rescoped) | New entity, 1M-row seeder, keyset pagination, indexes, isolation |
-| 4 — Redis: limits & tokens | Not started | Distributed rate limiting, refresh rotation |
-| 5 — Kafka & outbox | Not started | Async pipeline, no dual-write loss |
-| 6 — Observability | Not started | Cross-hop trace |
-| 7 — Kubernetes & scale-out | Not started | 3-replica benchmark + failure drills |
+| 2 — TypeScript migration | **Struck** ([ADR 0005](docs/adr/0005-drop-typescript.md)) | — |
+| 3 — Postgres foundation | Code complete; F-38..F-47 | Deals entity, 1M-row seeder, keyset pagination, indexes, isolation |
+| 4 — Redis: limits & tokens | Code complete; F-48..F-50 | Distributed rate limiting, refresh rotation, idempotency |
+| 5 — Kafka & outbox | Code complete | Async pipeline, no dual-write loss |
+| 6 — Observability | **Reduced** ([ADR 0006](docs/adr/0006-hand-written-metrics.md)) | `/metrics`: RED, pool saturation, loop lag, outbox depth |
+| 7 — Kubernetes & scale-out | Code complete; matrix pending | 3-replica benchmark + failure drills |
 | 8 — Hardening & docs | Not started | Integration tests, ADRs, BENCHMARKS.md |
 
+Decisions worth reading before the code: [ADR 0004](docs/adr/0004-one-database-driver.md)
+(one database driver), [0005](docs/adr/0005-drop-typescript.md) (no TypeScript),
+[0006](docs/adr/0006-hand-written-metrics.md) (hand-written metrics),
+[0007](docs/adr/0007-outbox-not-dual-write.md) (outbox, not dual writes),
+[0008](docs/adr/0008-hpa-on-cpu.md) (HPA on CPU). The reasoning behind each
+mechanism, in interview form, is
+[docs/interview/phases-3-to-7.md](docs/interview/phases-3-to-7.md).
+
+## Documentation
+
+📚 **[Complete Documentation Hub →](docs/README.md)**
+
+All project documentation is organized in the `docs/` directory:
+- [Getting Started Guide](docs/getting-started/) — Quick setup and benchmarking
+- [Architecture Decision Records (ADRs)](docs/adr/) — All architectural decisions documented
+- [Interview Documentation](docs/interview/) — Development phases and requirements
+- [Benchmark Results](docs/benchmarks/) — Performance analysis across versions
+- [Kubernetes Deployment](docs/kubernetes/) — Container orchestration guide
+
+## What the phases added, and how to check it
+
+Every claim below has a command that produces the evidence. All of them need
+Docker (and `npm install` first, for the two new dependencies).
+
+```bash
+npm run db:migrate            # 0001_deals, 0002_outbox, 0003_notifications
+npm run db:seed:deals         # 1,000,000 deals, generated inside Postgres
+npm run db:explain            # keyset vs OFFSET plans, with and without each index
+npm run db:isolation          # lost updates, write skew, and F-41 with two sessions
+npm run redis:proof:limiter   # 3 replicas: in-process over-admits, Redis is exact
+npm run redis:proof:refresh   # rotation, reuse detection, concurrency, real Lua
+npm run events:topics         # explicit topics: 3 partitions, real DLQ
+npm run events:drill -- write # with Kafka stopped: writes succeed, backlog grows
+npm run events:drill -- drain # with Kafka started: drains, consumes, deduplicates
+npm run k8s:up                # kind cluster: 3 API replicas, workers, HPA
+npm run k8s:drills            # kill a pod, roll out, drop Redis, drop Kafka
+npm run bench:v7              # the final matrix against the cluster
+```
+
+The two background workers run as their own processes (`npm run worker:publisher`,
+`npm run worker:consumer`), because the API scales with request traffic and they do
+not — the publisher is deliberately single-writer for ordering, and the consumer
+scales only as far as the topic has partitions.
+
 ## Quick start
+
 
 Docker with Compose V2 (the `docker compose` plugin, not `docker-compose`) and
 Node 22+.
@@ -72,13 +125,36 @@ Session auth is an httpOnly cookie named `token`, set by sign-up and sign-in.
 | GET | `/health` | none | none, deliberately |
 | GET | `/ready` | none | none, deliberately |
 | GET | `/api` | none | none |
+| GET | `/metrics` | none, or `METRICS_TOKEN` | none, deliberately |
 | POST | `/api/auth/sign-up` | none | `auth` — 10/min per IP, fails closed |
 | POST | `/api/auth/sign-in` | none | `auth` — 10/min per IP, fails closed |
+| POST | `/api/auth/refresh` | refresh cookie | `auth` — same bucket, fails closed |
 | POST | `/api/auth/sign-out` | none | none |
 | GET | `/api/users` | session + role `admin` | `api` — per user id, 100/min (`user`) or 300/min (`admin`), fails open |
 | GET | `/api/users/:id` | session | `api`, as above |
 | PUT | `/api/users/:id` | session; self, or `admin` for anyone | `api`, as above |
 | DELETE | `/api/users/:id` | session; self, or `admin` for anyone | `api`, as above |
+| GET | `/api/deals` | session; own deals, `admin` sees all | `api`, as above |
+| GET | `/api/deals/summary` | session | `api`, as above |
+| POST | `/api/deals` | session | `api`; honours `Idempotency-Key` |
+| GET | `/api/deals/:id` | session; owner or `admin` | `api`; returns an `ETag` |
+| PUT | `/api/deals/:id` | session; owner or `admin` | `api`; requires `version` or `If-Match` |
+| POST | `/api/deals/:id/stage` | session; owner or `admin` | `api`; `SELECT … FOR UPDATE` |
+| DELETE | `/api/deals/:id` | session; owner or `admin` | `api`, as above |
+| GET | `/api/notifications` | session; own only | `api`, as above |
+| POST | `/api/notifications/:id/read` | session; own only | `api`, as above |
+
+Four things in that table are load-bearing rather than cosmetic. `GET /api/deals`
+paginates by **cursor** (`?cursor=`), with `?offset=` kept reachable and capped at
+100,000 purely so the two strategies can be compared through the same stack.
+`PUT /api/deals/:id` refuses to write without an asserted version — 428 if it is
+missing, 409 with `currentVersion` if it is stale — because a default would turn a
+forgetful client into a last-writer-wins client. A deal belonging to someone else
+answers **404, never 403**, since a 403 confirms the row exists and turns an id into an
+oracle for another account's pipeline. And `POST /api/deals` with an `Idempotency-Key`
+replays the original response rather than creating a second deal, which is the only way
+a client can safely retry after a lost response.
+
 
 `/health` is liveness and answers from in-process state only. `/ready` is
 readiness and does a real `SELECT 1` round trip. Neither is rate limited, and

@@ -1,0 +1,107 @@
+# =============================================================================
+# Namespace, configuration, and the secret TEMPLATE.
+# =============================================================================
+# Applied first. Everything else lives in this namespace, which is what makes
+# `kubectl delete namespace acquisitions` a complete teardown.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: acquisitions
+  labels:
+    app.kubernetes.io/part-of: acquisitions
+---
+# -----------------------------------------------------------------------------
+# Non-secret configuration.
+#
+# WHY THIS IS NOT A SECRET AND THE DATABASE URL IS. The split is not "sensitive vs
+# not" — it is "does a leak of this value grant access". A pool size does not; a
+# password does. Putting everything in a Secret is a common instinct and it makes
+# configuration harder to review, because `kubectl get secret -o yaml` is base64 and
+# nobody diffs it.
+#
+# Every value here is deliberately the same knob the compose stack and the benchmark
+# use (src/config/env.js), so a Kubernetes deployment is not a different application
+# with different defaults.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acquisitions-config
+  namespace: acquisitions
+data:
+  NODE_ENV: 'production'
+  PORT: '3000'
+  LOG_LEVEL: 'info'
+
+  # Pool sizing (F-15) and pre-warm (F-39). PG_POOL_MAX is PER REPLICA: three API pods at
+  # 20 connections each need 60 slots plus the workers, which is why max_connections on
+  # Postgres below is 200 and not the default 100. Getting this wrong shows up as
+  # "too many connections" only under the load that needs it most.
+  PG_POOL_MAX: '20'
+  PG_POOL_PREWARM: '10'
+  PG_POOL_CONNECTION_TIMEOUT_MS: '5000'
+  PG_STATEMENT_TIMEOUT_MS: '15000'
+
+  # Phase 4: the limiter's store. THIS is the value that makes the 3-replica claim true —
+  # with `memory` the effective limit would be 3x the configured one.
+  RATE_LIMIT_STORE: 'redis'
+  REDIS_URL: 'redis://redis:6379'
+  REDIS_KEY_PREFIX: 'acq:'
+  RATE_LIMIT_WINDOW_MS: '60000'
+  RATE_LIMIT_AUTH_MAX: '10'
+  RATE_LIMIT_USER_MAX: '100'
+  RATE_LIMIT_ADMIN_MAX: '300'
+
+  # Phase 5: the broker. One topic, keyed by aggregate.
+  KAFKA_BROKERS: 'kafka:9092'
+  KAFKA_TOPIC: 'acquisitions.events'
+  KAFKA_DLQ_TOPIC: 'acquisitions.events.dlq'
+  KAFKA_CONSUMER_GROUP: 'acquisitions-workers'
+  OUTBOX_POLL_INTERVAL_MS: '250'
+  OUTBOX_BATCH_SIZE: '100'
+
+  SESSION_TTL_MS: '900000'
+  REFRESH_TTL_MS: '2592000000'
+
+  # Graceful shutdown. The readiness delay must be at least one readiness PERIOD so the
+  # endpoints controller has time to remove this pod before the listener closes, and the
+  # total must stay under terminationGracePeriodSeconds or SIGKILL arrives mid-drain.
+  # readinessDelay 3s + drain 10s = 13s < 30s grace. See src/server.js.
+  SHUTDOWN_READINESS_DELAY_MS: '3000'
+  SHUTDOWN_DRAIN_TIMEOUT_MS: '10000'
+
+  # Behind a Service and (optionally) an ingress, `X-Forwarded-For` is meaningful — but only
+  # as far as the number of proxies in front. `1` trusts exactly one hop; a bare `true` would
+  # trust the whole chain, and any client could then spoof its own rate-limit bucket
+  # (src/app.js).
+  TRUST_PROXY: '1'
+---
+# -----------------------------------------------------------------------------
+# A TEMPLATE. Do not commit real values here.
+#
+#   kubectl -n acquisitions create secret generic acquisitions-secrets \
+#     --from-literal=DATABASE_URL='postgresql://acq:CHANGEME@postgres:5432/acquisitions' \
+#     --from-literal=JWT_SECRET="$(openssl rand -base64 32)" \
+#     --from-literal=POSTGRES_PASSWORD='CHANGEME'
+#
+# The repository has form on this: a Neon connection string with its password was
+# committed in 4d0ae6e and had to be rotated, which is why gitleaks now runs in CI.
+# A file that LOOKS like where secrets go is how the next one gets committed, so this
+# one holds placeholders and the command above is the real interface.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acquisitions-secrets
+  namespace: acquisitions
+  annotations:
+    acquisitions/note: 'Placeholders only — replace with `kubectl create secret` before use.'
+type: Opaque
+stringData:
+  DATABASE_URL: 'postgresql://acq:REPLACE_ME@postgres:5432/acquisitions'
+  POSTGRES_PASSWORD: 'REPLACE_ME'
+  # Must be at least 32 characters or the app refuses to start in production
+  # (src/config/env.js) — a deliberate change from v0, which fell back to a literal
+  # committed in this repository.
+  JWT_SECRET: 'REPLACE_ME_WITH_openssl_rand_base64_32_OUTPUT_XX'

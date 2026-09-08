@@ -80,10 +80,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # 'development' target is REQUIRED, not a shortcut. src/config/database.js:8
-      # only constructs a pg.Pool when NODE_ENV === 'development'; any other value
-      # routes through the Neon HTTP driver, which cannot talk to local Postgres.
-      # Recorded as a Phase 0 finding — Phase 3 removes this branch.
+      # `development` is no longer a REQUIREMENT — finding F-38 removed the NODE_ENV driver
+      # branch, so pg.Pool is now the only driver and any NODE_ENV can talk to local Postgres.
+      # It stays for two reasons that are about measurement rather than capability: NODE_ENV
+      # also decides whether the session cookie carries `Secure` (src/utils/cookies.js), which
+      # a plain-http load test cannot send back, and changing the build target between phases
+      # would change what is being compared.
       target: development
     container_name: acq-bench-app
     hostname: app
@@ -91,6 +93,14 @@ services:
       - .env.bench
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-bench}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-benchdb}
+      # Phase 4 and 5 dependencies. Both are addressed by service name on the bench network; the
+      # host-facing ports below exist for the proof scripts and drills, which run on the host.
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      # EXPLICIT, because the default is `memory` and a benchmark that silently used the in-process
+      # limiter would be measuring a system whose effective limit is per-replica — which is the
+      # defect Phase 4 exists to fix, reintroduced as a configuration accident.
+      RATE_LIMIT_STORE: redis
       # BENCH_BYPASS_SECURITY was declared here in Phase 0 so run-baseline.sh could
       # vary it per run and record an as-built variant alongside a bypassed one.
       # Both the flag and the Arcjet middleware it disabled are gone in Phase 1, so
@@ -107,6 +117,10 @@ services:
     networks: [bench]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     # tini is PID 1, so SIGTERM reaches node and src/server.js drains. Must exceed
     # SHUTDOWN_READINESS_DELAY_MS + SHUTDOWN_DRAIN_TIMEOUT_MS, which .env.bench keeps
@@ -129,6 +143,160 @@ services:
       timeout: 3s
       retries: 12
       start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Redis (Phase 4) — the shared rate-limit window, refresh tokens, denylist.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4.1-alpine
+    container_name: acq-bench-redis
+    hostname: redis
+    command:
+      - redis-server
+      # NO PERSISTENCE, and that is a decision rather than a default. Everything this Redis holds
+      # is either reconstructible (rate-limit windows) or a session that a user can re-establish
+      # (refresh tokens). Paying for an fsync on the limiter's hot path to protect data whose loss
+      # costs a re-login is the wrong trade — and an AOF rewrite mid-benchmark would show up as an
+      # unexplained latency spike.
+      - --save
+      - ''
+      - --appendonly
+      - 'no'
+      # Bounded memory with an explicit eviction policy. `allkeys-lru` is deliberately NOT used:
+      # evicting a refresh token silently signs a user out, and evicting a limiter window silently
+      # raises the limit. `noeviction` makes memory pressure an error the application can see and
+      # count instead of a correctness change nobody notices.
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-256mb}
+      - --maxmemory-policy
+      - noeviction
+    ports:
+      - '${REDIS_HOST_PORT:-6380}:6379'
+    networks: [bench]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    deploy:
+      resources:
+        limits:
+          cpus: '${REDIS_CPUS:-0.5}'
+          memory: ${REDIS_MEMORY:-384M}
+
+  # ---------------------------------------------------------------------------
+  # Kafka (Phase 5) — single-node KRaft. No ZooKeeper.
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: acq-bench-kafka
+    hostname: kafka
+    environment:
+      # KRaft: this one node is both broker and controller. A single-node cluster means
+      # replication factor 1, so `acks: all` acknowledges exactly one copy — the setting in
+      # src/events/kafka.js is right, and the durability it buys here is one disk. Stated in
+      # k8s/kafka.yaml too, because it is the kind of thing that gets quoted as "we run acks=all".
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:29092
+      # TWO ADVERTISED LISTENERS, and this is the single most common way a local Kafka appears
+      # broken: a client resolves the broker by the address the broker advertises, not the one it
+      # connected to. Containers reach `kafka:9092`; scripts on the host reach `localhost:29092`.
+      # One listener cannot serve both, because `kafka` does not resolve on the host and
+      # `localhost` does not resolve to the broker inside the network.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # 0 rather than the 3000 ms default: with a fixed small number of consumers, waiting three
+      # seconds for stragglers on every rebalance is three seconds of stalled partitions in a
+      # benchmark that measures seconds.
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Off. Topics are created explicitly by scripts/events/topics.mjs with a deliberate partition
+      # count, because auto-creation gives a topic one partition and a typo gives you two topics.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      CLUSTER_ID: acq-bench-kraft-cluster
+    ports:
+      - '${KAFKA_HOST_PORT:-29092}:29092'
+    volumes:
+      - bench-kafka:/var/lib/kafka/data
+    networks: [bench]
+    healthcheck:
+      # The broker answers on the port well before it can serve metadata, so the probe asks for
+      # something real: a client that can list topics is a broker a producer can use.
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '${KAFKA_CPUS:-1.0}'
+          memory: ${KAFKA_MEMORY:-1G}
+
+  # ---------------------------------------------------------------------------
+  # The workers (Phase 5). Separate containers, because they are separate processes in
+  # Kubernetes — measuring the API with its publisher inside it would measure a topology
+  # nothing deploys.
+  # ---------------------------------------------------------------------------
+  publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: acq-bench-publisher
+    env_file: [.env.bench]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bench}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-benchdb}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+      PUBLISHER_PORT: 3100
+    command: ['node', 'src/workers/publisher.js']
+    networks: [bench]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    stop_grace_period: 15s
+    # ONE REPLICA. Ordering per aggregate depends on a single publisher (see the header of
+    # src/events/publisher.js); the Redis lock covers the rolling-deploy overlap.
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '${PUBLISHER_CPUS:-0.5}'
+          memory: ${PUBLISHER_MEMORY:-256M}
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: acq-bench-consumer
+    env_file: [.env.bench]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bench}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-benchdb}
+      KAFKA_BROKERS: kafka:9092
+      CONSUMER_PORT: 3200
+    command: ['node', 'src/workers/consumer.js']
+    networks: [bench]
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '${CONSUMER_CPUS:-0.5}'
+          memory: ${CONSUMER_MEMORY:-256M}
 
   # cAdvisor-free resource sampling: a tiny sidecar that records container CPU and
   # memory each second, so a latency spike can be attributed to saturation rather
@@ -153,3 +321,5 @@ networks:
 volumes:
   bench-pgdata:
     name: acq-bench-pgdata
+  bench-kafka:
+    name: acq-bench-kafka

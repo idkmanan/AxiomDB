@@ -32,10 +32,78 @@
 import app from '#src/app.js';
 import config from '#config/env.js';
 import logger from '#config/logger.js';
-import { closeDatabase } from '#config/database.js';
-import { closeRateLimiter } from '#middleware/rate-limit.middleware.js';
+import { closeDatabase, prewarmPool } from '#config/database.js';
+import { closeRateLimiter, setRateLimitStore } from '#middleware/rate-limit.middleware.js';
+import { RedisSlidingWindowStore } from '#rate-limit/redis-store.js';
+import { connectRedis, closeRedis } from '#redis/client.js';
+import { stopMetrics } from '#metrics/collectors.js';
 
 app.locals.shuttingDown = false;
+
+// A metrics endpoint with no access control publishes route names, traffic volumes, error
+// rates and pool state. In Kubernetes the scrape is in-cluster and the port is not in the
+// ingress, which is the intended posture — but a compose deployment that publishes the port
+// has neither, so say so once at startup rather than never.
+if (config.isProduction && !process.env.METRICS_TOKEN) {
+  logger.warn(
+    'GET /metrics is unauthenticated. Set METRICS_TOKEN, or keep the port off your ingress ' +
+      'and scrape it in-cluster.'
+  );
+}
+
+// Pre-warm BEFORE the listener opens (finding F-39). node-postgres has no `min`, so
+// without this the first requests of a deploy each pay TCP + TLS + authentication for a
+// new connection — on an event loop that a burst of traffic has already made busy, which
+// is how F-37's connect timeouts happened against a perfectly healthy database. Awaited
+// at module scope: top-level await is available in ESM, and the alternative — warming
+// after `listen()` — would race the very requests it exists to protect.
+//
+// It resolves rather than rejects when the database is unreachable. A service that
+// refuses to start because a dependency is briefly down converts a database blip into a
+// deploy failure, and the readiness probe already reports the truth.
+await prewarmPool();
+
+// ---------------------------------------------------------------------------
+// Redis, and the reason a failure here does NOT stop the process.
+//
+// Connecting is attempted at boot so the first request does not pay for it (the same reasoning
+// as the pool pre-warm). If it fails, the process still starts, and that is deliberate: a pod
+// that refuses to boot while Redis is briefly unavailable crash-loops, and Kubernetes then has
+// no capacity at all — a dependency blip escalated into an outage by the startup code.
+//
+// What happens instead is what Phase 1 designed for. The Redis-backed limiter stays installed,
+// its commands fail fast (`enableOfflineQueue: false`), and the per-route policy from ADR 0002
+// decides: auth endpoints fail CLOSED with a 503, reads fail OPEN and are logged and counted.
+// The store is NOT silently swapped back to the in-process one, because three replicas each
+// enforcing the full limit locally is a wrong answer that looks like a right one.
+// ---------------------------------------------------------------------------
+if (config.redis.url) {
+  try {
+    const client = await connectRedis();
+    if (config.rateLimitStore === 'redis') {
+      setRateLimitStore(new RedisSlidingWindowStore({ client }));
+    }
+  } catch (e) {
+    logger.error('Redis is not reachable at startup — continuing in a degraded state', {
+      error: e.message,
+      rateLimitStore: config.rateLimitStore,
+      consequence:
+        config.rateLimitStore === 'redis'
+          ? 'auth endpoints will 503 (fail closed) and reads will pass unlimited (fail open) until Redis returns'
+          : 'refresh tokens and revocation are unavailable until Redis returns',
+    });
+    if (config.rateLimitStore === 'redis') {
+      // Installed anyway. See above: the policy handles an unavailable store correctly, and
+      // pretending to be limited is worse than being explicitly unlimited.
+      const { getRedis } = await import('#redis/client.js');
+      try {
+        setRateLimitStore(new RedisSlidingWindowStore({ client: getRedis() }));
+      } catch {
+        logger.error('No Redis client exists at all; the in-process limiter remains active');
+      }
+    }
+  }
+}
 
 const server = app.listen(config.port, () => {
   logger.info('Server listening', {
@@ -106,6 +174,13 @@ async function shutdown(signal) {
 
   // Step 5: release resources. Nothing can start new work by this point.
   closeRateLimiter();
+  stopMetrics();
+  try {
+    const result = await closeRedis();
+    if (result.closed) logger.info('Redis connection closed');
+  } catch (e) {
+    logger.error('Error closing Redis', { error: e.message });
+  }
   try {
     const result = await closeDatabase();
     logger.info('Database connections released', result);

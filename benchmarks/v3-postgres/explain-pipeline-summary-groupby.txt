@@ -1,0 +1,50 @@
+# pipeline-summary-groupby
+SQL:select stage, count(*), coalesce(sum(amount_cents), 0)
+              from deals where closed_at is null group by stage
+-- WITH INDEX (no index dropped for this query)
+-- median execution 209.098 ms over 3 runs: 63.543, 277.528, 209.098
+Finalize GroupAggregate  (cost=18622.54..18623.87 rows=5 width=44) (actual time=195.874..208.863 rows=4 loops=1)
+  Output: stage, count(*), COALESCE(sum(amount_cents), '0'::numeric)
+  Group Key: deals.stage
+  Buffers: shared hit=14589
+  ->  Gather Merge  (cost=18622.54..18623.70 rows=10 width=44) (actual time=195.852..208.824 rows=12 loops=1)
+        Output: stage, (PARTIAL count(*)), (PARTIAL sum(amount_cents))
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=14589
+        ->  Sort  (cost=17622.51..17622.53 rows=5 width=44) (actual time=183.751..183.754 rows=4 loops=3)
+              Output: stage, (PARTIAL count(*)), (PARTIAL sum(amount_cents))
+              Sort Key: deals.stage
+              Sort Method: quicksort  Memory: 25kB
+              Buffers: shared hit=14589
+              Worker 0:  actual time=177.409..177.412 rows=4 loops=1
+                Sort Method: quicksort  Memory: 25kB
+                Buffers: shared hit=4792
+              Worker 1:  actual time=178.822..178.825 rows=4 loops=1
+                Sort Method: quicksort  Memory: 25kB
+                Buffers: shared hit=3381
+              ->  Partial HashAggregate  (cost=17622.39..17622.46 rows=5 width=44) (actual time=183.609..183.614 rows=4 loops=3)
+                    Output: stage, PARTIAL count(*), PARTIAL sum(amount_cents)
+                    Group Key: deals.stage
+                    Batches: 1  Memory Usage: 24kB
+                    Buffers: shared hit=14573
+                    Worker 0:  actual time=177.225..177.229 rows=4 loops=1
+                      Batches: 1  Memory Usage: 24kB
+                      Buffers: shared hit=4784
+                    Worker 1:  actual time=178.610..178.617 rows=4 loops=1
+                      Batches: 1  Memory Usage: 24kB
+                      Buffers: shared hit=3373
+                    ->  Parallel Bitmap Heap Scan on public.deals  (cost=2805.90..17281.04 rows=45514 width=12) (actual time=24.533..107.193 rows=37402 loops=3)
+                          Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+                          Recheck Cond: (deals.closed_at IS NULL)
+                          Heap Blocks: exact=5861
+                          Buffers: shared hit=14573
+                          Worker 0:  actual time=17.943..93.378 rows=38350 loops=1
+                            Buffers: shared hit=4784
+                          Worker 1:  actual time=20.200..98.320 rows=26909 loops=1
+                            Buffers: shared hit=3373
+                          ->  Bitmap Index Scan on deals_open_created_idx  (cost=0.00..2778.59 rows=109234 width=0) (actual time=28.983..28.984 rows=112219 loops=1)
+                                Buffers: shared hit=555
+Query Identifier: -5064995522297111331
+Planning Time: 0.267 ms
+Execution Time: 209.098 ms

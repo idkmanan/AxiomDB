@@ -114,7 +114,31 @@ const pool = {
   // Recycle connections so a long-lived pool cannot accumulate server-side state
   // or leak memory in a driver.
   maxLifetimeSeconds: intFromEnv('PG_POOL_MAX_LIFETIME_S', 1800, { min: 60 }),
+
+  // ---- Phase 3 additions -------------------------------------------------
+  // Pre-warm (finding F-39). node-postgres has no `min`, so the pool starts empty
+  // and pays connection setup on the first request that needs each slot — under
+  // load, on an event loop that is already busy, which is how F-37's
+  // 'Connection terminated due to connection timeout' happened against a healthy
+  // database. Half of `max` is warmed at boot before readiness passes.
+  prewarm: intFromEnv('PG_POOL_PREWARM', 0, { min: 0, max: 500 }),
+
+  // Server-side backstops. Without them one pathological query holds a pool slot
+  // indefinitely and pool exhaustion (F-33) turns a single bad request into a
+  // service-wide 503. `statement_timeout` is enforced by Postgres and cancels the
+  // query; `query_timeout` is enforced by the client and only stops waiting — both
+  // are set because each covers a case the other misses (a server that never
+  // replies, versus a query that runs forever).
+  statementTimeoutMs: intFromEnv('PG_STATEMENT_TIMEOUT_MS', 15000, { min: 100 }),
+  queryTimeoutMs: intFromEnv('PG_QUERY_TIMEOUT_MS', 20000, { min: 100 }),
 };
+
+// Default the pre-warm to half the pool rather than hardcoding a number that
+// contradicts `max` when someone tunes it. Expressed here rather than in the
+// literal above so `PG_POOL_PREWARM=0` remains a way to switch it off entirely.
+if (!process.env.PG_POOL_PREWARM) {
+  pool.prewarm = Math.max(1, Math.floor(pool.max / 2));
+}
 
 // ---------------------------------------------------------------------------
 // Pagination (replaces the unbounded SELECT at v0 users.service.js:6-14).
@@ -153,6 +177,95 @@ function resolveCors() {
   return { origins, credentials: origins.length > 0 && !origins.includes('*') };
 }
 
+// ---------------------------------------------------------------------------
+// Redis (Phase 4).
+// ---------------------------------------------------------------------------
+// Three separate concerns share one connection: the rate-limit store, refresh-token
+// storage, and the access-token denylist. One connection because ioredis multiplexes
+// commands over a single socket and a second connection buys nothing until something
+// blocks on it (a subscriber or a BLPOP would need its own — neither exists here).
+//
+// `store` is what makes the Phase 1 → Phase 4 claim measurable: the limiter is
+// `memory` until this flips to `redis`, and the in-process version is provably wrong
+// across replicas. Keeping both switchable means the wrong behaviour can be
+// demonstrated on demand rather than described.
+const redis = {
+  url: process.env.REDIS_URL || '',
+  keyPrefix: process.env.REDIS_KEY_PREFIX || 'acq:',
+  // Fail fast. A limiter that waits 10s for Redis has become the outage.
+  connectTimeoutMs: intFromEnv('REDIS_CONNECT_TIMEOUT_MS', 2000, { min: 50 }),
+  commandTimeoutMs: intFromEnv('REDIS_COMMAND_TIMEOUT_MS', 300, { min: 10 }),
+};
+
+const rateLimitStore = (() => {
+  const raw = (process.env.RATE_LIMIT_STORE || 'memory').toLowerCase();
+  if (!['memory', 'redis'].includes(raw)) {
+    throw new Error(`Invalid RATE_LIMIT_STORE="${raw}" — expected "memory" or "redis".`);
+  }
+  if (raw === 'redis' && !redis.url) {
+    // Silently falling back to the in-process store would leave three replicas enforcing
+    // 3x the configured limit while the configuration says otherwise — the exact failure
+    // Phase 4 exists to fix, reintroduced as a config accident.
+    throw new Error('RATE_LIMIT_STORE=redis requires REDIS_URL to be set.');
+  }
+  return raw;
+})();
+
+// ---------------------------------------------------------------------------
+// Refresh tokens (Phase 4).
+// ---------------------------------------------------------------------------
+// The access token stays short (SESSION_TTL_MS, 15 min) and is now paired with an
+// opaque refresh token in Redis. 30 days is the outer bound on a stolen refresh token
+// that is never used again; rotation plus reuse detection is what bounds the damage
+// when it IS used (see src/auth/refresh.service.js).
+const refresh = {
+  ttlMs: intFromEnv('REFRESH_TTL_MS', 30 * 24 * 60 * 60 * 1000, {
+    min: 5 * 60 * 1000,
+    max: 365 * 24 * 60 * 60 * 1000,
+  }),
+  cookieName: process.env.REFRESH_COOKIE_NAME || 'refresh_token',
+};
+
+// Replayed responses for unsafe writes. 24 hours is the window in which a retry of the
+// same request returns the original answer rather than creating a second deal.
+const idempotency = {
+  ttlMs: intFromEnv('IDEMPOTENCY_TTL_MS', 24 * 60 * 60 * 1000, { min: 60 * 1000 }),
+};
+
+// ---------------------------------------------------------------------------
+// Kafka and the outbox (Phase 5).
+// ---------------------------------------------------------------------------
+// Optional, like Redis: with no brokers configured the outbox table still receives every event
+// (the domain write is unaffected), and nothing publishes them. That is a deliberate property
+// rather than a degradation — it is exactly the state the broker-down drill puts the system in,
+// and the rows wait.
+//
+// ONE TOPIC, keyed by aggregate. A topic per event type is the more common first instinct and it
+// breaks ordering: `deal.created` and `deal.stage_advanced` on different topics have no relative
+// order at all, so a consumer can see a stage change for a deal it has not been told about. One
+// topic keyed by `deal:<id>` puts every event for one deal in one partition, and Kafka guarantees
+// order within a partition.
+const kafka = {
+  brokers: (process.env.KAFKA_BROKERS || '')
+    .split(',')
+    .map((b) => b.trim())
+    .filter(Boolean),
+  clientId: process.env.KAFKA_CLIENT_ID || 'acquisitions',
+  topic: process.env.KAFKA_TOPIC || 'acquisitions.events',
+  // A real DLQ topic, not a log line. A dead-lettered event has to be inspectable and replayable
+  // by something other than the process that failed to handle it.
+  dlqTopic: process.env.KAFKA_DLQ_TOPIC || 'acquisitions.events.dlq',
+  consumerGroup: process.env.KAFKA_CONSUMER_GROUP || 'acquisitions-workers',
+  // The poller. 250 ms is well under any human-visible latency and far above the cost of an
+  // indexed query that usually returns nothing.
+  pollIntervalMs: intFromEnv('OUTBOX_POLL_INTERVAL_MS', 250, { min: 25 }),
+  // Small on purpose: the publishing transaction stays open across the Kafka send, and a long
+  // transaction holds back VACUUM.
+  batchSize: intFromEnv('OUTBOX_BATCH_SIZE', 100, { min: 1, max: 1000 }),
+  // Consumer-side handler retries before the event goes to the DLQ.
+  maxHandlerAttempts: intFromEnv('CONSUMER_MAX_ATTEMPTS', 3, { min: 1, max: 20 }),
+};
+
 export const config = {
   nodeEnv: NODE_ENV,
   isProduction: IS_PRODUCTION,
@@ -172,6 +285,11 @@ export const config = {
   pool,
   pagination,
   cors: resolveCors(),
+  redis,
+  rateLimitStore,
+  refresh,
+  idempotency,
+  kafka,
 
   // Graceful shutdown (see src/server.js). Kubernetes sends SIGTERM and then
   // SIGKILL after terminationGracePeriodSeconds; this must be comfortably lower.

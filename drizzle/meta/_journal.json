@@ -8,6 +8,27 @@
       "when": 1784610694679,
       "tag": "0000_dapper_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788619459316,
+      "tag": "0001_deals",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788625168437,
+      "tag": "0002_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788625503679,
+      "tag": "0003_notifications",
+      "breakpoints": true
     }
   ]
 }

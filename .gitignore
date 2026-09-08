@@ -52,3 +52,8 @@ benchmarks/.sampler.log
 *.swp
 *.swo
 *~
+conversation-archive.md
+
+# Temporary files
+conversation-archive.html
+cookies.txt

@@ -5,10 +5,15 @@ import cookieParser from 'cookie-parser';
 import logger from '#config/logger.js';
 import config from '#config/env.js';
 import { pingDatabase, poolStats } from '#config/database.js';
+import { pingRedis } from '#redis/client.js';
 import authRoutes from '#routes/auth.routes.js';
 import usersRoutes from '#routes/users.routes.js';
+import dealsRoutes from '#routes/deals.routes.js';
+import notificationsRoutes from '#routes/notifications.routes.js';
 import { requestId } from '#middleware/request-id.middleware.js';
 import { requestLogger } from '#middleware/request-log.middleware.js';
+import { activeStoreName } from '#middleware/rate-limit.middleware.js';
+import { metricsMiddleware, registry } from '#metrics/collectors.js';
 import { errorHandler, notFoundHandler } from '#middleware/error.middleware.js';
 
 const app = express();
@@ -45,6 +50,11 @@ app.disable('x-powered-by');
 // one produced by a parser failure — carries an id.
 // ---------------------------------------------------------------------------
 app.use(requestId);
+
+// Second, so every request that gets an id also gets counted — including the ones later
+// middleware rejects. A 401 from `authenticate` and a 429 from the limiter are real traffic;
+// metrics that only cover successful requests cannot show a spike in either.
+app.use(metricsMiddleware);
 
 app.use(helmet());
 
@@ -120,13 +130,30 @@ app.get('/health', (req, res) => {
 // 503 the moment SIGTERM arrives so the load balancer stops sending work before
 // the listener closes. That gap is the difference between a rolling deploy that
 // drops requests and one that does not — see src/server.js.
+//
+// REDIS IS REPORTED BUT NOT REQUIRED, and that is a deliberate line. Readiness answers "can
+// this instance serve requests", and it can: the limiter's per-route policy already decides
+// what to do without Redis (ADR 0002). Failing readiness on a Redis outage would take every
+// replica out of the load balancer simultaneously — a cache blip escalated into a total
+// outage by the health check. Postgres is different: without it nearly every endpoint is a
+// 500, so it stays the gate.
 app.get('/ready', async (req, res) => {
   if (app.locals.shuttingDown) {
     return res.status(503).json({ status: 'SHUTTING_DOWN', ready: false });
   }
   try {
     const db = await pingDatabase();
-    return res.status(200).json({ status: 'READY', ready: true, db, pool: poolStats() });
+    const redis = await pingRedis().catch((e) => ({ ok: false, error: e.message }));
+    return res.status(200).json({
+      status: 'READY',
+      ready: true,
+      db,
+      pool: poolStats(),
+      redis,
+      // Which store is actually live, so a deployment cannot claim distributed rate limiting it
+      // does not have. This is the assertion the 3-replica proof reads.
+      rateLimitStore: activeStoreName(),
+    });
   } catch (e) {
     logger.error('Readiness check failed', { requestId: req.id, error: e.message });
     return res.status(503).json({ status: 'NOT_READY', ready: false, reason: 'database' });
@@ -137,8 +164,44 @@ app.get('/api', (req, res) => {
   res.status(200).json({ message: 'Acquisitions API is running!' });
 });
 
+// ---------------------------------------------------------------------------
+// METRICS. Not rate limited, for the same reason as the probes: a limiter in front of the
+// endpoint that reports saturation means the data stops arriving exactly when it matters.
+//
+// ACCESS CONTROL, and this is a deliberate decision rather than an omission. The payload
+// exposes route names, traffic volumes, error rates and pool state — useful to an operator
+// and useful to an attacker mapping the service. Two mitigations, in order of preference:
+//
+//   1. Do not expose the port. In Kubernetes the scrape happens in-cluster, and
+//      k8s/*-service.yaml keeps this out of the ingress. That is the intended production
+//      posture.
+//   2. `METRICS_TOKEN`, checked below, for anything that does not have (1) — a compose
+//      deployment with a published port, for instance.
+//
+// Unauthenticated by default so local development and the benchmark harness work without
+// ceremony, with a startup warning when production leaves it that way (src/server.js).
+// ---------------------------------------------------------------------------
+app.get('/metrics', (req, res) => {
+  const expected = process.env.METRICS_TOKEN;
+  if (expected) {
+    const presented = req.get('Authorization')?.replace(/^Bearer\s+/i, '');
+    // Length-check first: `timingSafeEqual` throws on a length mismatch, and comparing
+    // lengths is not a secret anyway.
+    const ok =
+      presented !== undefined && presented.length === expected.length && presented === expected;
+    if (!ok) {
+      logger.warn('Rejected /metrics request', { requestId: req.id, ip: req.ip });
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+  res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+  res.status(200).send(registry.render());
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/deals', dealsRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 // Order matters and is load-bearing. The 404 handler must come after every route,
 // and the error handler must come last of all — Express selects error middleware

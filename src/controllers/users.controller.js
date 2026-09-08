@@ -1,5 +1,5 @@
 import logger from '#config/logger.js';
-import { formatValidationError, validationIssues } from '#utils/format.js';
+import { parseOr400 } from '#utils/http-validate.js';
 import {
   getAllUsers,
   getUserById as getUserByIdService,
@@ -11,21 +11,6 @@ import {
   updateUserSchema,
   listUsersQuerySchema,
 } from '#validations/users.validation.js';
-
-/** One place for the repeated safeParse-then-400 shape. */
-function parseOr400(schema, input, res, req, what) {
-  const result = schema.safeParse(input);
-  if (result.success) return result.data;
-  logger.warn(`Validation error: ${what}`, {
-    requestId: req.id,
-    issues: validationIssues(result.error),
-  });
-  res.status(400).json({
-    message: 'Validation failed',
-    errors: formatValidationError(result.error),
-  });
-  return null;
-}
 
 export const fetchAllUsers = async (req, res, next) => {
   try {

@@ -1,0 +1,80 @@
+isolation demo against postgresql://bench:***@localhost:5433/benchdb
+
+── 1. check-then-insert at READ COMMITTED (F-41)
+   expected: both transactions see no existing row; the second INSERT fails with 23505
+   A │ SELECT … WHERE email = 'race_1788801836125@example.test' → 0 rows
+   B │ SELECT … same email → 0 rows  ← both passed the check
+   A │ INSERT → ok (uncommitted, and therefore invisible to B)
+   B │ INSERT → blocks on the unique index, waiting for A
+   A │ COMMIT
+   B │ INSERT resolves → 23505
+   observed: B got 23505
+   MATCHES the expectation
+   note: The unique index is the serialization point, not the transaction. Wrapping the check and the insert in BEGIN/COMMIT changes nothing: both snapshots showed no row.
+
+── 2. check-then-insert at SERIALIZABLE
+   expected: the second transaction aborts with 40001 (or 23505) instead of committing bad data
+   A/B │ both SELECT under SSI — the read is now tracked for conflict detection
+   A │ COMMIT
+   B │ INSERT resolves → 40001
+   observed: B got 40001
+   MATCHES the expectation
+   note: SERIALIZABLE detects the conflict rather than preventing it, so it is only usable with a retry loop — which is why src/utils/tx.js has one. Note that 23505 is also a correct outcome here: the unique index does not need SSI to do its job.
+
+── 3. read-modify-write at READ COMMITTED loses an update (F-42)
+   expected: two +10 increments produce +10, not +20
+   A │ read amount_cents = 100
+   B │ read amount_cents = 100  ← same value, no lock taken
+   A │ UPDATE amount_cents = 110
+   B │ UPDATE amount_cents = 110  ← overwrites A
+   — │ final amount_cents = 110
+   observed: final = 110
+   MATCHES the expectation
+   note: No error, no warning, no log line — the first update simply ceased to exist. This is the failure mode that makes "it worked in testing" so convincing.
+
+── 4. the version column converts the lost update into a 409
+   expected: B's UPDATE matches zero rows, so the application can refuse it
+   A │ read version = 1
+   B │ read version = 1
+   A │ UPDATE … AND version = 1 → 1 row(s)
+   B │ UPDATE … AND version = 1 → 0 row(s)  ← the conflict, detected
+   — │ final amount_cents = 110
+   observed: A updated 1 row, B updated 0 rows, final = 110
+   MATCHES the expectation
+   note: Same final value as the lost update, but the second writer is TOLD. That is the whole difference: 409 with the current version lets the client re-read and re-apply, so the intended +20 can still happen. src/services/deals.service.js updateDeal.
+
+── 5. SELECT … FOR UPDATE serialises the two writers instead
+   expected: B blocks until A commits, then reads the new value: +20
+   A │ SELECT … FOR UPDATE → 100 (row now locked)
+   B │ SELECT … FOR UPDATE → blocks
+   A │ UPDATE + COMMIT — lock released
+   B │ SELECT resolves → 110  ← A's committed value, not the stale one
+   B │ UPDATE amount_cents = 120 + COMMIT
+   — │ final amount_cents = 120
+   observed: final = 120
+   MATCHES the expectation
+   note: Both increments survive because the lock made read-then-write atomic. The cost is that B waited. Correct for a decision that depends on current state — the stage machine — and wrong across a client round trip, where the wait is a human being.
+
+── 6. the same SELECT twice: READ COMMITTED moves, REPEATABLE READ does not
+   expected: READ COMMITTED sees the committed change mid-transaction; REPEATABLE READ keeps its snapshot
+   B │ UPDATE amount_cents = 999 + COMMIT (autocommit) while A is open at read committed
+   A │ read committed: first read 100, second read 999
+   B │ UPDATE amount_cents = 999 + COMMIT (autocommit) while A is open at repeatable read
+   A │ repeatable read: first read 100, second read 100
+   observed: read committed: 100 → 999; repeatable read: 100 → 100
+   MATCHES the expectation
+   note: A report that runs several queries at READ COMMITTED can therefore disagree with itself. REPEATABLE READ in Postgres is snapshot isolation: one snapshot for the whole transaction, taken at the first statement.
+
+── 7. write skew at REPEATABLE READ, caught at SERIALIZABLE
+   expected: RR lets both sessions break a "max 3 open deals" rule; SERIALIZABLE aborts one with 40001
+   A │ counted 2 open deals (limit 3) → decides it may insert
+   B │ counted 2 open deals (limit 3) → decides it may insert
+   — │ repeatable read: A committed, B committed, open deals now 4
+   A │ counted 2 open deals (limit 3) → decides it may insert
+   B │ counted 2 open deals (limit 3) → decides it may insert
+   — │ serializable: A committed, B 40001, open deals now 3
+   observed: repeatable read → 4 open deals (B committed); serializable → 3 open deals (B 40001)
+   MATCHES the expectation
+   note: Write skew is the anomaly people are surprised by, because each transaction is individually correct: both read a valid state and wrote a row the other did not touch. No row lock helps — there is no shared row. Either the invariant becomes a database constraint, or the transaction runs at SERIALIZABLE with a retry.
+
+7/7 scenarios behaved as the code assumes

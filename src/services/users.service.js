@@ -3,6 +3,7 @@ import { db } from '#config/database.js';
 import logger from '#config/logger.js';
 import { users } from '#models/user.model.js';
 import { AppError } from '#middleware/error.middleware.js';
+import { pgCodeOf } from '#utils/db-error.js';
 
 // The public column set. `password` is absent on purpose and must stay absent —
 // `db.select().from(users)` (no projection) returns the bcrypt hash, which is
@@ -78,42 +79,70 @@ export const getUserById = async (id) => {
   return result[0] || null;
 };
 
-export const updateUser = async (id, updates) => {
-  // READ-MODIFY-WRITE RACE, unchanged and recorded.
+export const updateUser = async (id, updates, { executor = db } = {}) => {
+  // ONE STATEMENT — FINDING F-42. What was here:
   //
-  // This reads the row, decides it exists, then writes — with no transaction and
-  // no version check. Two concurrent updates to the same user both read the same
-  // state and the second silently overwrites the first: a lost update. The
-  // existence check is also redundant with the UPDATE itself, which is what makes
-  // the fix cheap.
+  //   const existing = await getUserById(id);   // decision
+  //   if (!existing) throw new AppError(…404…);
+  //   await db.update(users).set(updates)…      // action, on state that may have moved
   //
-  // Phase 3 replaces this with either `SELECT … FOR UPDATE` inside a transaction
-  // or an optimistic-concurrency version column returning 409 on conflict, and
-  // that comparison is the point of the isolation-level section. Fixing it here
-  // would spend the exhibit before there is a benchmark to show it in.
-  const existingUser = await getUserById(id);
-  if (!existingUser) {
-    throw new AppError('User not found', 404, { code: 'USER_NOT_FOUND' });
-  }
-
-  const result = await db
+  // Two problems, one fix. The existence check was redundant with the UPDATE — a
+  // predicate that matches no rows returns no rows, which is the same information — so
+  // it bought nothing and cost a round trip on every request. And between the read and
+  // the write another request could delete or modify the row, which is the check-then-act
+  // pattern F-41 covers in its other form.
+  //
+  // WHAT THIS DOES AND DOES NOT GUARANTEE, stated because "fixed the lost update" would
+  // be too strong: drizzle sets only the columns present in `updates`, so two concurrent
+  // updates to DIFFERENT fields now both survive — under the old read-modify-write shape
+  // the second would have carried stale values for the first's fields. Two concurrent
+  // updates to the SAME field remain last-writer-wins, which is the conventional
+  // semantics for a partial update over HTTP and is a policy rather than a bug.
+  //
+  // Where that policy is not good enough, the alternative is a version column and a 409,
+  // which is exactly what `deals` does (src/services/deals.service.js). Putting both in
+  // the codebase is the point: the comparison is the deliverable, not the winner.
+  const [row] = await executor
     .update(users)
     .set({ ...updates, updated_at: new Date() })
     .where(eq(users.id, id))
     .returning(PUBLIC_COLUMNS);
 
+  if (!row) throw new AppError('User not found', 404, { code: 'USER_NOT_FOUND' });
+
   logger.info('User updated', { userId: id, fields: Object.keys(updates) });
-  return result[0];
+  return row;
 };
 
-export const deleteUser = async (id) => {
-  // Same race as updateUser, same reason for leaving it.
-  const existingUser = await getUserById(id);
-  if (!existingUser) {
-    throw new AppError('User not found', 404, { code: 'USER_NOT_FOUND' });
+export const deleteUser = async (id, { executor = db } = {}) => {
+  try {
+    const [row] = await executor.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+    if (!row) throw new AppError('User not found', 404, { code: 'USER_NOT_FOUND' });
+  } catch (e) {
+    // NEW IN PHASE 3, and a direct consequence of `deals.owner_id` being declared
+    // ON DELETE RESTRICT rather than CASCADE. Deleting a user who still owns deals is
+    // now refused by the database with SQLSTATE 23503.
+    //
+    // The generic handler in src/middleware/error.middleware.js maps 23503 to
+    // "Referenced resource does not exist", which is the correct message for the INSERT
+    // direction and misleading for this one — the referenced row exists, it is the
+    // referencing rows that block the delete. So the direction is disambiguated here,
+    // where the intent is known, rather than by making the shared table vaguer.
+    //
+    // CASCADE was the alternative and it is the wrong default for business records: it
+    // would silently destroy a pipeline when an account is closed, and the caller would
+    // never learn how much was deleted.
+    if (pgCodeOf(e) === '23503') {
+      logger.warn('User delete refused — the user still owns deals', { userId: id });
+      throw new AppError(
+        'This user still owns deals. Reassign or delete them before deleting the account.',
+        409,
+        { code: 'USER_HAS_DEALS', cause: e }
+      );
+    }
+    throw e;
   }
 
-  await db.delete(users).where(eq(users.id, id));
   logger.info('User deleted', { userId: id });
   return { success: true };
 };

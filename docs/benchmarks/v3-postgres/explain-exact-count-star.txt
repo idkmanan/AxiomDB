@@ -1,0 +1,29 @@
+# exact-count-star
+SQL:select count(*) from deals
+-- WITH INDEX (no index dropped for this query)
+-- median execution 302.479 ms over 3 runs: 302.479, 302.629, 299.175
+Finalize Aggregate  (cost=20228.58..20228.58 rows=1 width=8) (actual time=289.157..297.160 rows=1 loops=1)
+  Output: count(*)
+  Buffers: shared hit=14020
+  ->  Gather  (cost=20228.36..20228.57 rows=2 width=8) (actual time=288.963..297.147 rows=3 loops=1)
+        Output: (PARTIAL count(*))
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=14020
+        ->  Partial Aggregate  (cost=19228.36..19228.37 rows=1 width=8) (actual time=281.644..281.646 rows=1 loops=3)
+              Output: PARTIAL count(*)
+              Buffers: shared hit=14020
+              Worker 0:  actual time=278.033..278.034 rows=1 loops=1
+                Buffers: shared hit=4325
+              Worker 1:  actual time=278.606..278.607 rows=1 loops=1
+                Buffers: shared hit=4126
+              ->  Parallel Seq Scan on public.deals  (cost=0.00..18186.69 rows=416669 width=0) (actual time=0.015..72.893 rows=333335 loops=3)
+                    Output: id, owner_id, title, company, stage, amount_cents, currency, version, created_at, updated_at, closed_at
+                    Buffers: shared hit=14020
+                    Worker 0:  actual time=0.015..115.790 rows=307769 loops=1
+                      Buffers: shared hit=4325
+                    Worker 1:  actual time=0.015..50.770 rows=294143 loops=1
+                      Buffers: shared hit=4126
+Query Identifier: 4957389056276671697
+Planning Time: 0.153 ms
+Execution Time: 302.479 ms

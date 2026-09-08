@@ -1,0 +1,47 @@
+# keyset-first-page
+SQL:select id, created_at from deals order by created_at desc nulls last, id desc nulls last limit 20
+-- WITH INDEX (deals_created_at_id_idx)
+-- median execution 0.079 ms over 3 runs: 0.091, 0.069, 0.079
+Limit  (cost=0.42..1.03 rows=20 width=16) (actual time=0.038..0.047 rows=20 loops=1)
+  Output: id, created_at
+  Buffers: shared hit=5
+  ->  Index Only Scan using deals_created_at_id_idx on public.deals  (cost=0.42..30400.50 rows=1000005 width=16) (actual time=0.037..0.043 rows=20 loops=1)
+        Output: id, created_at
+        Heap Fetches: 5
+        Buffers: shared hit=5
+Query Identifier: -557498625993779037
+Planning Time: 0.078 ms
+Execution Time: 0.079 ms
+-- WITHOUT deals_created_at_id_idx (dropped inside a transaction, rolled back)
+-- median execution 409.619 ms over 3 runs: 408.334, 674.477, 409.619
+Limit  (cost=30274.12..30276.46 rows=20 width=16) (actual time=402.370..409.561 rows=20 loops=1)
+  Output: id, created_at
+  Buffers: shared hit=14108
+  ->  Gather Merge  (cost=30274.12..127503.68 rows=833338 width=16) (actual time=402.368..409.555 rows=20 loops=1)
+        Output: id, created_at
+        Workers Planned: 2
+        Workers Launched: 2
+        Buffers: shared hit=14108
+        ->  Sort  (cost=29274.10..30315.77 rows=416669 width=16) (actual time=399.426..399.428 rows=15 loops=3)
+              Output: id, created_at
+              Sort Key: deals.created_at DESC NULLS LAST, deals.id DESC NULLS LAST
+              Sort Method: top-N heapsort  Memory: 26kB
+              Buffers: shared hit=14108
+              Worker 0:  actual time=398.047..398.049 rows=20 loops=1
+                Sort Method: top-N heapsort  Memory: 26kB
+                Buffers: shared hit=4503
+              Worker 1:  actual time=398.086..398.089 rows=20 loops=1
+                Sort Method: top-N heapsort  Memory: 26kB
+                Buffers: shared hit=4319
+              ->  Parallel Seq Scan on public.deals  (cost=0.00..18186.69 rows=416669 width=16) (actual time=0.007..227.765 rows=333335 loops=3)
+                    Output: id, created_at
+                    Buffers: shared hit=14020
+                    Worker 0:  actual time=0.007..205.043 rows=317677 loops=1
+                      Buffers: shared hit=4459
+                    Worker 1:  actual time=0.010..204.760 rows=304719 loops=1
+                      Buffers: shared hit=4275
+Query Identifier: -557498625993779037
+Planning:
+  Buffers: shared hit=5
+Planning Time: 0.112 ms
+Execution Time: 409.619 ms

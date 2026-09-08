@@ -1,5 +1,6 @@
 import logger from '#config/logger.js';
 import { jwttoken } from '#utils/jwt.js';
+import { isAccessTokenDenied } from '#auth/denylist.service.js';
 
 // A note on log levels here, because it is the same mistake morgan was making.
 //
@@ -29,10 +30,30 @@ export const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwttoken.verify(token);
+
+    // REVOCATION CHECK — Phase 4. A verified signature only proves the token was issued; it
+    // cannot know the session was ended. This is the lookup that makes sign-out mean something
+    // (src/auth/denylist.service.js), and it is a no-op when Redis is not configured, so the
+    // memory-only deployment behaves exactly as it did in Phase 1 rather than pretending to
+    // have revocation.
+    if (await isAccessTokenDenied(decoded.jti)) {
+      logger.warn('Authentication failed — token has been revoked', {
+        requestId: req.id,
+        path: req.path,
+        userId: decoded.id,
+        jti: decoded.jti,
+      });
+      return res.status(401).json({ error: 'Unauthorized', message: 'Session has been revoked' });
+    }
+
     req.user = {
       id: decoded.id,
       email: decoded.email,
       role: decoded.role,
+      // Carried so sign-out can revoke THIS token without re-parsing it, and so the
+      // request log can correlate a session across requests.
+      jti: decoded.jti,
+      exp: decoded.exp,
     };
 
     next();

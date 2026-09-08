@@ -23,6 +23,27 @@ export const signupLatency = new Trend('lat_signup', true);
 // open-model capacity number is never confused with a users-list latency.
 export const apiRootLatency = new Trend('lat_api_root', true);
 
+// ---------------------------------------------------------------------------
+// Phase 3-5 endpoints, added for benchmarks/k6/full.js.
+// ---------------------------------------------------------------------------
+// Each is a Trend of its own for the same reason as the originals: a keyset page over 1M rows
+// and a deep OFFSET page over the same table are the comparison this project exists to make,
+// and blending them into one number erases it.
+export const dealsKeysetLatency = new Trend('lat_deals_keyset', true);
+export const dealsOffsetLatency = new Trend('lat_deals_offset', true);
+export const dealByIdLatency = new Trend('lat_deal_by_id', true);
+export const dealCreateLatency = new Trend('lat_deal_create', true);
+export const dealStageLatency = new Trend('lat_deal_stage', true);
+export const notificationsLatency = new Trend('lat_notifications', true);
+
+// A replayed idempotent response is a SUCCESS with a different meaning from a fresh execution:
+// it means a retry was recognised. Counted separately so it can never be mistaken for either an
+// error or a duplicate write.
+export const countIdempotentReplay = new Counter('idempotent_replays');
+// 409 on a stage transition is the concurrency control working, not a failure — the same
+// distinction as 429-versus-500 above.
+export const countConflict409 = new Counter('conflict_409');
+
 // Error accounting, split by cause. A 429 is the system working as designed; a
 // 500 is a defect. Collapsing both into "error rate" hides which one you have.
 export const rate429 = new Rate('rejected_rate_limited');
@@ -71,4 +92,8 @@ export function record(res, latencyTrend) {
 
   // Load shedding, not a defect. See the note on count503 above.
   if (s === 503) count503.add(1);
+
+  // Concurrency control working as designed (version conflict, illegal stage transition), which
+  // is already counted in client_errors but is worth its own line in the report.
+  if (s === 409) countConflict409.add(1);
 }
