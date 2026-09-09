@@ -71,14 +71,13 @@ console.log('DEBUG: config.cors =', config.cors);
 logger.info('CORS configuration check:', {
   corsOriginEnv: process.env.CORS_ORIGIN,
   corsOrigins: config.cors.origins,
-  corsCredentials: config.cors.credentials
+  corsCredentials: config.cors.credentials,
 });
 
 if (config.cors.origins) {
   // The cors package expects '*' as a string, not ['*']
-  const origin = config.cors.origins.length === 1 && config.cors.origins[0] === '*'
-    ? '*'
-    : config.cors.origins;
+  const origin =
+    config.cors.origins.length === 1 && config.cors.origins[0] === '*' ? '*' : config.cors.origins;
   app.use(cors({ origin, credentials: config.cors.credentials }));
   logger.info('CORS enabled with origins:', origin);
 } else {
