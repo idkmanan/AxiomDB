@@ -66,8 +66,17 @@ app.use(helmet());
 // documented variable was read by nothing. A security setting that appears
 // configured and is not is worse than an absent one.
 // ---------------------------------------------------------------------------
+console.log('DEBUG: process.env.CORS_ORIGIN =', process.env.CORS_ORIGIN);
+console.log('DEBUG: config.cors =', config.cors);
+logger.info('CORS configuration check:', {
+  corsOriginEnv: process.env.CORS_ORIGIN,
+  corsOrigins: config.cors.origins,
+  corsCredentials: config.cors.credentials
+});
+
 if (config.cors.origins) {
   app.use(cors({ origin: config.cors.origins, credentials: config.cors.credentials }));
+  logger.info('CORS enabled with origins:', config.cors.origins);
 } else {
   app.use(cors());
   if (config.isProduction) {
