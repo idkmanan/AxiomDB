@@ -75,8 +75,12 @@ logger.info('CORS configuration check:', {
 });
 
 if (config.cors.origins) {
-  app.use(cors({ origin: config.cors.origins, credentials: config.cors.credentials }));
-  logger.info('CORS enabled with origins:', config.cors.origins);
+  // The cors package expects '*' as a string, not ['*']
+  const origin = config.cors.origins.length === 1 && config.cors.origins[0] === '*'
+    ? '*'
+    : config.cors.origins;
+  app.use(cors({ origin, credentials: config.cors.credentials }));
+  logger.info('CORS enabled with origins:', origin);
 } else {
   app.use(cors());
   if (config.isProduction) {
