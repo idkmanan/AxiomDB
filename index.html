@@ -1,0 +1,677 @@
+<title>Acquisitions Live Metrics</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --surface: #151a23;
+    --surface-elevated: #1e2530;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --border: #30363d;
+    --code-bg: #161b22;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --surface-elevated: #ffffff;
+      --text: #24292f;
+      --text-muted: #57606a;
+      --accent: #0969da;
+      --accent-dim: #0550ae;
+      --success: #1a7f37;
+      --warning: #9a6700;
+      --danger: #cf222e;
+      --border: #d0d7de;
+      --code-bg: #f6f8fa;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --bg: #ffffff;
+    --surface: #f6f8fa;
+    --surface-elevated: #ffffff;
+    --text: #24292f;
+    --text-muted: #57606a;
+    --accent: #0969da;
+    --accent-dim: #0550ae;
+    --success: #1a7f37;
+    --warning: #9a6700;
+    --danger: #cf222e;
+    --border: #d0d7de;
+    --code-bg: #f6f8fa;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+
+  header {
+    margin-bottom: 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .header-content h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+    color: var(--text);
+  }
+
+  .header-meta {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .input-group {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  input[type="text"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    width: 280px;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+  }
+
+  button {
+    background: var(--accent);
+    border: none;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+
+  button:hover {
+    background: var(--accent-dim);
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+  }
+
+  .card-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0;
+  }
+
+  .card-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    color: var(--text-muted);
+  }
+
+  .metric-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1;
+    margin: 0.5rem 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-unit {
+    font-size: 1rem;
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+
+  .metric-label {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin: 0.5rem 0 0 0;
+  }
+
+  .metric-change {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .metric-change.positive {
+    color: var(--success);
+  }
+
+  .metric-change.negative {
+    color: var(--danger);
+  }
+
+  .chart-container {
+    height: 200px;
+    margin-top: 1rem;
+    position: relative;
+  }
+
+  .chart {
+    width: 100%;
+    height: 100%;
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 3rem 0 1rem 0;
+    color: var(--text);
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .metric-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .metric-tile-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 0.5rem 0;
+  }
+
+  .metric-tile-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .alert {
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1.5rem 0;
+    border-left: 4px solid;
+    display: flex;
+    gap: 1rem;
+  }
+
+  .alert.info {
+    background: rgba(88, 166, 255, 0.1);
+    border-color: var(--accent);
+  }
+
+  .alert.warning {
+    background: rgba(210, 153, 34, 0.1);
+    border-color: var(--warning);
+  }
+
+  .benchmark-comparison {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .comparison-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .comparison-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .comparison-table th {
+    text-align: left;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border);
+  }
+
+  .comparison-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .comparison-table tr:hover {
+    background: var(--surface);
+  }
+
+  .improvement {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background: rgba(63, 185, 80, 0.1);
+    color: var(--success);
+  }
+
+  code {
+    background: var(--code-bg);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.875em;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 1rem;
+    }
+
+    header {
+      flex-direction: column;
+    }
+
+    .grid {
+      grid-template-columns: 1fr;
+    }
+
+    .comparison-table {
+      font-size: 0.875rem;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 0.5rem;
+    }
+  }
+</style>
+
+<div class="container">
+  <header>
+    <div class="header-content">
+      <h1>Acquisitions Live Metrics</h1>
+      <div class="header-meta">
+        <span id="last-update">Last updated: Never</span>
+        <span>•</span>
+        <span id="connection-status">Disconnected</span>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="input-group">
+        <input
+          type="text"
+          id="api-url"
+          placeholder="http://localhost:3000"
+          value="http://localhost:3000"
+        />
+        <button id="connect-btn">Connect</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="alert info">
+    <div>
+      <strong>📊 Real-time monitoring dashboard</strong>
+      <p style="margin: 0.5rem 0 0 0;">Enter your API base URL above and click Connect to start monitoring. The dashboard queries <code>/metrics</code> every 5 seconds to visualize your distributed system's health.</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">System Overview</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Request Rate</h3>
+        <span class="card-badge">req/s</span>
+      </div>
+      <div class="metric-value" id="request-rate">—</div>
+      <p class="metric-label">Total HTTP requests per second</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">P95 Latency</h3>
+        <span class="card-badge">ms</span>
+      </div>
+      <div class="metric-value" id="p95-latency">—</div>
+      <p class="metric-label">95th percentile response time</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Error Rate</h3>
+        <span class="card-badge">%</span>
+      </div>
+      <div class="metric-value" id="error-rate">—</div>
+      <p class="metric-label">5xx responses / total requests</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">In-Flight Requests</h3>
+        <span class="card-badge">active</span>
+      </div>
+      <div class="metric-value" id="in-flight">—</div>
+      <p class="metric-label">Currently being served</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">Database & Infrastructure</h2>
+  <div class="metrics-grid">
+    <div class="metric-tile">
+      <h4 class="metric-tile-label">Pool Active</h4>
+      <div class="metric-tile-value" id="pool-active">—</div>
+    </div>
+    <div class="metric-tile">
+      <h4 class="metric-tile-label">Pool Idle</h4>
+      <div class="metric-tile-value" id="pool-idle">—</div>
+    </div>
+    <div class="metric-tile">
+      <h4 class="metric-tile-label">Pool Waiting</h4>
+      <div class="metric-tile-value" id="pool-waiting">—</div>
+    </div>
+    <div class="metric-tile">
+      <h4 class="metric-tile-label">Event Loop Lag</h4>
+      <div class="metric-tile-value" id="event-loop-lag">— ms</div>
+    </div>
+    <div class="metric-tile">
+      <h4 class="metric-tile-label">Rate Limit Hits</h4>
+      <div class="metric-tile-value" id="rate-limit-hits">—</div>
+    </div>
+    <div class="metric-tile">
+      <h4 class="metric-tile-label">Rate Limit Fails</h4>
+      <div class="metric-tile-value" id="rate-limit-fails">—</div>
+    </div>
+  </div>
+
+  <div class="benchmark-comparison">
+    <div class="comparison-header">
+      <h3 class="comparison-title">Performance Evolution: v0 → v7</h3>
+      <span class="status-badge">
+        <span class="status-dot"></span>
+        Measured Improvements
+      </span>
+    </div>
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>v0 Baseline</th>
+          <th>v7 Final</th>
+          <th>Improvement</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Throughput</strong></td>
+          <td>2.11 iter/s @ 5 VUs</td>
+          <td>4.19 iter/s @ 5 VUs</td>
+          <td><span class="improvement">↑ 98.6% faster</span></td>
+        </tr>
+        <tr>
+          <td><strong>P95 Latency</strong></td>
+          <td>695.18 ms</td>
+          <td>6.06 ms</td>
+          <td><span class="improvement">↓ 99.1% reduction</span></td>
+        </tr>
+        <tr>
+          <td><strong>P50 Latency</strong></td>
+          <td>197.39 ms</td>
+          <td>2.75 ms</td>
+          <td><span class="improvement">↓ 98.6% reduction</span></td>
+        </tr>
+        <tr>
+          <td><strong>Capacity @ 100 VUs</strong></td>
+          <td>1.28 iter/s (2.79% failed)</td>
+          <td>74.29 iter/s (4.27% failed)</td>
+          <td><span class="improvement">↑ 58× throughput</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="alert warning" id="no-data-alert" style="display: none;">
+    <div>
+      <strong>⚠️ No metrics data</strong>
+      <p style="margin: 0.5rem 0 0 0;">Unable to fetch metrics from the API. Make sure your backend is running and the <code>/metrics</code> endpoint is accessible.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+let apiBaseUrl = 'http://localhost:3000';
+let updateInterval = null;
+let lastMetrics = null;
+
+const connectBtn = document.getElementById('connect-btn');
+const apiUrlInput = document.getElementById('api-url');
+const connectionStatus = document.getElementById('connection-status');
+const lastUpdate = document.getElementById('last-update');
+const noDataAlert = document.getElementById('no-data-alert');
+
+connectBtn.addEventListener('click', () => {
+  apiBaseUrl = apiUrlInput.value.trim();
+  if (!apiBaseUrl) {
+    alert('Please enter an API URL');
+    return;
+  }
+
+  if (updateInterval) {
+    clearInterval(updateInterval);
+    connectBtn.textContent = 'Connect';
+    connectionStatus.textContent = 'Disconnected';
+    updateInterval = null;
+  } else {
+    connectBtn.textContent = 'Disconnect';
+    fetchMetrics();
+    updateInterval = setInterval(fetchMetrics, 5000);
+  }
+});
+
+async function fetchMetrics() {
+  try {
+    const response = await fetch(`${apiBaseUrl}/metrics`, {
+      headers: { 'Accept': 'text/plain' }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const metricsText = await response.text();
+    const metrics = parsePrometheusMetrics(metricsText);
+
+    updateDashboard(metrics);
+    connectionStatus.textContent = 'Connected';
+    connectionStatus.style.color = 'var(--success)';
+    lastUpdate.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+    noDataAlert.style.display = 'none';
+    lastMetrics = metrics;
+  } catch (error) {
+    console.error('Failed to fetch metrics:', error);
+    connectionStatus.textContent = `Error: ${error.message}`;
+    connectionStatus.style.color = 'var(--danger)';
+    noDataAlert.style.display = 'flex';
+  }
+}
+
+function parsePrometheusMetrics(text) {
+  const metrics = {};
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    if (line.startsWith('#') || !line.trim()) continue;
+
+    const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{?([^}]*)\}?\s+([0-9.]+(?:e[+-]?[0-9]+)?)/);
+    if (!match) continue;
+
+    const [, name, labelsStr, value] = match;
+    const labels = {};
+
+    if (labelsStr) {
+      const labelPairs = labelsStr.match(/([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"/g);
+      if (labelPairs) {
+        for (const pair of labelPairs) {
+          const [key, val] = pair.split('=');
+          labels[key] = val.replace(/"/g, '');
+        }
+      }
+    }
+
+    if (!metrics[name]) metrics[name] = [];
+    metrics[name].push({ labels, value: parseFloat(value) });
+  }
+
+  return metrics;
+}
+
+function updateDashboard(metrics) {
+  // Request rate (sum of all http_requests_total over last interval)
+  const totalRequests = metrics.http_requests_total?.reduce((sum, m) => sum + m.value, 0) || 0;
+  const requestRate = lastMetrics ?
+    (totalRequests - (lastMetrics.http_requests_total?.reduce((sum, m) => sum + m.value, 0) || 0)) / 5 :
+    0;
+  document.getElementById('request-rate').textContent = requestRate.toFixed(2);
+
+  // P95 latency - approximate from histogram buckets
+  const durationBuckets = metrics.http_request_duration_seconds_bucket || [];
+  const p95Bucket = durationBuckets.find(m => m.labels.le === '0.1');
+  const p95Ms = p95Bucket ? (p95Bucket.value * 100).toFixed(2) : '—';
+  document.getElementById('p95-latency').textContent = p95Ms;
+
+  // Error rate
+  const total = metrics.http_requests_total?.reduce((sum, m) => sum + m.value, 0) || 0;
+  const errors = metrics.http_requests_total?.filter(m => m.labels.status?.startsWith('5')).reduce((sum, m) => sum + m.value, 0) || 0;
+  const errorRate = total > 0 ? ((errors / total) * 100).toFixed(2) : '0.00';
+  document.getElementById('error-rate').textContent = errorRate;
+
+  // In-flight requests
+  const inFlight = metrics.http_requests_in_flight?.[0]?.value || 0;
+  document.getElementById('in-flight').textContent = inFlight.toFixed(0);
+
+  // Pool stats
+  const poolActive = metrics.pg_pool_connections?.find(m => m.labels.state === 'active')?.value || 0;
+  const poolIdle = metrics.pg_pool_connections?.find(m => m.labels.state === 'idle')?.value || 0;
+  const poolWaiting = metrics.pg_pool_connections?.find(m => m.labels.state === 'waiting')?.value || 0;
+  document.getElementById('pool-active').textContent = poolActive.toFixed(0);
+  document.getElementById('pool-idle').textContent = poolIdle.toFixed(0);
+  document.getElementById('pool-waiting').textContent = poolWaiting.toFixed(0);
+
+  // Event loop lag
+  const eventLoopLag = metrics.nodejs_eventloop_lag_seconds?.[0]?.value || 0;
+  document.getElementById('event-loop-lag').textContent = (eventLoopLag * 1000).toFixed(2) + ' ms';
+
+  // Rate limiting
+  const rateLimitHits = metrics.rate_limit_hits_total?.[0]?.value || 0;
+  const rateLimitFails = metrics.rate_limit_failures_total?.[0]?.value || 0;
+  document.getElementById('rate-limit-hits').textContent = rateLimitHits.toFixed(0);
+  document.getElementById('rate-limit-fails').textContent = rateLimitFails.toFixed(0);
+}
+
+// Show demo data on load
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('request-rate').textContent = '—';
+  document.getElementById('p95-latency').textContent = '—';
+  document.getElementById('error-rate').textContent = '—';
+  document.getElementById('in-flight').textContent = '—';
+});
+</script>

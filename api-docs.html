@@ -1,0 +1,1565 @@
+<title>Acquisitions API Reference</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-hover: #f5f5f5;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --text: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #737373;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-bg: #eff6ff;
+  --success: #16a34a;
+  --success-bg: #f0fdf4;
+  --warning: #ea580c;
+  --warning-bg: #fff7ed;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --code-bg: #f5f5f5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0a;
+    --surface: #171717;
+    --surface-hover: #262626;
+    --border: #262626;
+    --border-strong: #404040;
+    --text: #fafafa;
+    --text-secondary: #a3a3a3;
+    --text-tertiary: #737373;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-bg: #1e3a8a;
+    --success: #22c55e;
+    --success-bg: #14532d;
+    --warning: #f97316;
+    --warning-bg: #7c2d12;
+    --danger: #ef4444;
+    --danger-bg: #7f1d1d;
+    --code-bg: #262626;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --surface: #171717;
+  --surface-hover: #262626;
+  --border: #262626;
+  --border-strong: #404040;
+  --text: #fafafa;
+  --text-secondary: #a3a3a3;
+  --text-tertiary: #737373;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-bg: #1e3a8a;
+  --success: #22c55e;
+  --success-bg: #14532d;
+  --warning: #f97316;
+  --warning-bg: #7c2d12;
+  --danger: #ef4444;
+  --danger-bg: #7f1d1d;
+  --code-bg: #262626;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 24px 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.api-url {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--code-bg);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.api-url input {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  width: 280px;
+  outline: none;
+}
+
+.api-url button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.api-url button:hover {
+  background: var(--accent-hover);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 48px;
+  padding: 48px 0;
+}
+
+nav {
+  position: sticky;
+  top: 100px;
+  height: fit-content;
+}
+
+.nav-section {
+  margin-bottom: 32px;
+}
+
+.nav-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.nav-section a {
+  display: block;
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.nav-section a:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.nav-section a.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+main {
+  max-width: 900px;
+}
+
+section {
+  margin-bottom: 80px;
+  scroll-margin-top: 120px;
+}
+
+h2 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+  text-wrap: balance;
+}
+
+.section-intro {
+  font-size: 17px;
+  color: var(--text-secondary);
+  margin-bottom: 40px;
+  max-width: 65ch;
+  line-height: 1.7;
+}
+
+.endpoint {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.endpoint-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.endpoint-header:hover {
+  background: var(--surface-hover);
+}
+
+.method {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.method.get { background: var(--success-bg); color: var(--success); }
+.method.post { background: var(--accent-bg); color: var(--accent); }
+.method.put { background: var(--warning-bg); color: var(--warning); }
+.method.delete { background: var(--danger-bg); color: var(--danger); }
+
+.endpoint-path {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 15px;
+  font-weight: 500;
+  flex: 1;
+}
+
+.endpoint-toggle {
+  color: var(--text-tertiary);
+  font-size: 20px;
+  transition: transform 0.2s;
+}
+
+.endpoint.expanded .endpoint-toggle {
+  transform: rotate(180deg);
+}
+
+.endpoint-body {
+  display: none;
+  padding: 24px;
+  gap: 24px;
+  flex-direction: column;
+}
+
+.endpoint.expanded .endpoint-body {
+  display: flex;
+}
+
+.endpoint-description {
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.subsection {
+  margin-top: 16px;
+}
+
+.subsection h4 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.param, .response-item {
+  padding: 12px;
+  background: var(--code-bg);
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.param-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.param-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.param-type {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.param-required {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--danger);
+}
+
+.param-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.code-block {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-block pre {
+  margin: 0;
+  white-space: pre;
+}
+
+.try-it {
+  background: var(--accent-bg);
+  border-radius: 6px;
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.try-it h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--accent);
+}
+
+.try-it-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.try-it-form label {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  display: block;
+  color: var(--text-secondary);
+}
+
+.try-it-form input, .try-it-form textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.try-it-form textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.try-it-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.try-it-actions button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-hover);
+}
+
+.response-preview {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.response-status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  padding: 4px 8px;
+  background: var(--code-bg);
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.response-body {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge.auth { background: var(--warning-bg); color: var(--warning); }
+.badge.admin { background: var(--danger-bg); color: var(--danger); }
+.badge.redis { background: #fef3c7; color: #d97706; }
+</style>
+
+<header>
+  <div class="container">
+    <div class="header-content">
+      <h1>Acquisitions API Reference</h1>
+      <div class="api-url">
+        <input type="text" id="baseUrl" value="http://localhost:3000" placeholder="API Base URL">
+        <button onclick="updateBaseUrl()">Set</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="layout">
+    <nav>
+      <div class="nav-section">
+        <h3>Getting Started</h3>
+        <a href="#overview">Overview</a>
+        <a href="#authentication">Authentication</a>
+      </div>
+      <div class="nav-section">
+        <h3>Endpoints</h3>
+        <a href="#health">Health & Status</a>
+        <a href="#auth">Authentication</a>
+        <a href="#users">Users</a>
+        <a href="#deals">Deals</a>
+        <a href="#notifications">Notifications</a>
+      </div>
+    </nav>
+
+    <main>
+      <section id="overview">
+        <h2>Overview</h2>
+        <p class="section-intro">
+          The Acquisitions API is a production-ready distributed backend demonstrating enterprise patterns: Redis-backed distributed rate limiting, refresh token rotation, optimistic locking, idempotency keys, and Kafka event streaming with transactional outbox.
+        </p>
+        <p class="section-intro">
+          Built over 7 measured phases with 50+ documented findings. Performance improved from 695ms p95 (v0) to 6ms p95 (v7) — a 99.1% latency reduction.
+        </p>
+      </section>
+
+      <section id="authentication">
+        <h2>Authentication</h2>
+        <p class="section-intro">
+          The API uses JWT access tokens (15min TTL) with opaque refresh tokens (30 day TTL). Access tokens are sent in cookies on every request. Refresh tokens are scoped to <code>/api/auth</code> only and support rotation with reuse detection.
+        </p>
+
+        <div class="subsection">
+          <h4>Authentication Flow</h4>
+          <div class="code-block"><pre>1. POST /api/auth/sign-up or /api/auth/sign-in
+   → Returns user object + sets two cookies:
+     • token (access JWT, domain-wide)
+     • refresh_token (scoped to /api/auth)
+
+2. Include cookies on subsequent requests
+   → Middleware validates access token
+
+3. When access token expires (15min):
+   POST /api/auth/refresh
+   → Rotates refresh token, mints new access token
+
+4. POST /api/auth/sign-out
+   → Revokes access token (denylist) + kills refresh family</pre></div>
+        </div>
+
+        <div class="subsection">
+          <h4>Rate Limiting</h4>
+          <p class="section-intro">
+            <span class="badge redis">Redis</span> Authentication endpoints are heavily rate limited (keyed by IP, fails closed). Authenticated endpoints use per-role limits (keyed by user ID, fails open without Redis).
+          </p>
+        </div>
+      </section>
+
+      <section id="health">
+        <h2>Health & Status</h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/health</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Liveness probe. Answers from in-process state only, with no dependency check. Returns 503 when shutting down.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "status": "OK",
+  "timestamp": "2026-09-09T10:05:32.123Z",
+  "uptime": 3600.45
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/ready</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Readiness probe. Checks Postgres connection (required) and reports Redis status (optional). Returns 503 during shutdown or when database is unreachable.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "status": "READY",
+  "ready": true,
+  "db": { "ok": true, "latencyMs": 2.4 },
+  "pool": { "total": 10, "idle": 8, "waiting": 0 },
+  "redis": { "ok": true, "latencyMs": 1.2 },
+  "rateLimitStore": "redis"
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/metrics</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Prometheus-format metrics endpoint. Exposes RED metrics (Rate, Errors, Duration), pool saturation, event-loop lag, and rate limit state. Protected by <code>METRICS_TOKEN</code> when set.
+            </p>
+
+            <div class="subsection">
+              <h4>Headers</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">Authorization</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Bearer token (if METRICS_TOKEN is set)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="auth">
+        <h2>Authentication <span class="badge auth">Rate Limited</span></h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/auth/sign-up</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Create a new user account. Returns user object and sets authentication cookies. New users always get role "user" — the role field is never accepted from the request body (finding F-23).
+            </p>
+
+            <div class="subsection">
+              <h4>Request Body</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">name</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">User's full name (2-100 chars)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">email</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">Valid email address</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">password</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">Minimum 8 characters</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 201</h4>
+              <div class="code-block"><pre>{
+  "message": "User created successfully",
+  "user": {
+    "id": 42,
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "role": "user"
+  }
+}</pre></div>
+            </div>
+
+            <div class="try-it">
+              <h4>Try it out</h4>
+              <div class="try-it-form">
+                <div>
+                  <label>Name</label>
+                  <input type="text" data-field="name" placeholder="Alice Johnson">
+                </div>
+                <div>
+                  <label>Email</label>
+                  <input type="email" data-field="email" placeholder="alice@example.com">
+                </div>
+                <div>
+                  <label>Password</label>
+                  <input type="password" data-field="password" placeholder="••••••••">
+                </div>
+                <div class="try-it-actions">
+                  <button class="btn-primary" onclick="tryRequest('POST', '/api/auth/sign-up', this)">Send Request</button>
+                  <button class="btn-secondary" onclick="clearForm(this)">Clear</button>
+                </div>
+              </div>
+              <div class="response-preview" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/auth/sign-in</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Authenticate with email and password. Returns user object and sets authentication cookies (access token + refresh token).
+            </p>
+
+            <div class="subsection">
+              <h4>Request Body</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">email</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">password</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Sign in successful",
+  "user": {
+    "id": 42,
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "role": "user"
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/auth/refresh</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              <span class="badge redis">Redis Required</span> Rotate refresh token and mint new access token. Detects reuse and revokes family on replay. User is re-read from database (authorization stays at most 15min stale).
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Session refreshed",
+  "user": {
+    "id": 42,
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "role": "user"
+  },
+  "expiresIn": 900
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/auth/sign-out</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Revoke access token (denylist by jti) and kill refresh family. Best-effort, always returns 200. Clears cookies regardless of revocation success.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Sign out successful",
+  "revoked": {
+    "accessToken": true,
+    "refreshFamily": true
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="users">
+        <h2>Users <span class="badge auth">Auth Required</span></h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/users</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              <span class="badge admin">Admin Only</span> List all users with keyset pagination. Ordered by ID descending.
+            </p>
+
+            <div class="subsection">
+              <h4>Query Parameters</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">limit</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">Page size (default: 20, max: 100)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">cursor</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">User ID to continue from</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Successfully retrieved users",
+  "users": [
+    {
+      "id": 42,
+      "name": "Alice Johnson",
+      "email": "alice@example.com",
+      "role": "user",
+      "created_at": "2026-09-01T10:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "returned": 1,
+    "hasMore": false,
+    "nextCursor": null
+  },
+  "count": 1
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/users/:id</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Get user by ID. Any authenticated user can read any user.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Successfully retrieved user",
+  "user": {
+    "id": 42,
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "role": "user",
+    "created_at": "2026-09-01T10:00:00.000Z"
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method put">PUT</span>
+            <span class="endpoint-path">/api/users/:id</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Update user. Non-admins can only update their own profile. Changing role requires admin privileges.
+            </p>
+
+            <div class="subsection">
+              <h4>Request Body</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">name</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Updated name</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">email</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Updated email</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">password</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">New password (min 8 chars)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">role</span>
+                  <span class="param-type">string</span>
+                  <span class="badge admin">Admin Only</span>
+                </div>
+                <div class="param-desc">user | admin</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "User updated successfully",
+  "user": {
+    "id": 42,
+    "name": "Alice Johnson",
+    "email": "alice.new@example.com",
+    "role": "user"
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method delete">DELETE</span>
+            <span class="endpoint-path">/api/users/:id</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Delete user. Non-admins can only delete their own account.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "User deleted successfully"
+}</pre></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="deals">
+        <h2>Deals <span class="badge auth">Auth Required</span></h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/deals</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              List deals with keyset or offset pagination. Non-admins see only their own deals. Admins can filter by owner_id.
+            </p>
+
+            <div class="subsection">
+              <h4>Query Parameters</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">limit</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">Page size (default: 20, max: 100)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">cursor</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Base64 cursor for keyset pagination</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">offset</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">Offset pagination (measurement baseline, not recommended)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">stage</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Filter: lead | qualified | proposal | negotiation | won | lost</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">owner_id</span>
+                  <span class="param-type">integer</span>
+                  <span class="badge admin">Admin Only</span>
+                </div>
+                <div class="param-desc">Filter by owner</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Successfully retrieved deals",
+  "deals": [
+    {
+      "id": 101,
+      "owner_id": 42,
+      "title": "Enterprise License - Acme Corp",
+      "company": "Acme Corp",
+      "amount_cents": 5000000,
+      "currency": "USD",
+      "stage": "negotiation",
+      "version": 3,
+      "created_at": "2026-09-01T10:00:00.000Z",
+      "updated_at": "2026-09-09T09:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "returned": 1,
+    "hasMore": false,
+    "nextCursor": null
+  },
+  "count": 1
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/deals/summary</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Pipeline summary: open deals by stage + estimated total count.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Successfully retrieved pipeline summary",
+  "open_by_stage": {
+    "lead": 45,
+    "qualified": 23,
+    "proposal": 12,
+    "negotiation": 8
+  },
+  "total_estimated": 88
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/deals/:id</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Get deal by ID. Returns 404 for deals owned by other users (not 403, to avoid enumeration oracle).
+            </p>
+
+            <div class="subsection">
+              <h4>Response Headers</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">ETag</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Weak entity tag containing version: W/"3"</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Successfully retrieved deal",
+  "deal": {
+    "id": 101,
+    "owner_id": 42,
+    "title": "Enterprise License - Acme Corp",
+    "company": "Acme Corp",
+    "amount_cents": 5000000,
+    "currency": "USD",
+    "stage": "negotiation",
+    "version": 3,
+    "created_at": "2026-09-01T10:00:00.000Z",
+    "updated_at": "2026-09-09T09:30:00.000Z"
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/deals</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Create deal. Supports idempotency via <code>Idempotency-Key</code> header. Owner is always set to the authenticated user.
+            </p>
+
+            <div class="subsection">
+              <h4>Request Headers (Optional)</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">Idempotency-Key</span>
+                  <span class="param-type">string</span>
+                  <span class="badge redis">Redis</span>
+                </div>
+                <div class="param-desc">Client-generated UUID for idempotent replay protection (24h window)</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Request Body</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">title</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">Deal title (1-200 chars)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">company</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">Company name (1-200 chars)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">amount_cents</span>
+                  <span class="param-type">integer</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">Deal value in cents</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">currency</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">3-letter currency code (e.g. USD, EUR)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">stage</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Default: lead</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 201</h4>
+              <div class="code-block"><pre>{
+  "message": "Deal created",
+  "deal": {
+    "id": 102,
+    "owner_id": 42,
+    "title": "Enterprise License - Beta Inc",
+    "company": "Beta Inc",
+    "amount_cents": 3500000,
+    "currency": "USD",
+    "stage": "lead",
+    "version": 1,
+    "created_at": "2026-09-09T10:05:00.000Z",
+    "updated_at": "2026-09-09T10:05:00.000Z"
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method put">PUT</span>
+            <span class="endpoint-path">/api/deals/:id</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Update deal with optimistic locking. Provide expected version via <code>If-Match</code> header or <code>version</code> in body. Returns 409 with current version on conflict.
+            </p>
+
+            <div class="subsection">
+              <h4>Request Headers</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">If-Match</span>
+                  <span class="param-type">string</span>
+                </div>
+                <div class="param-desc">Entity tag with expected version: W/"3"</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Request Body</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">version</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">Expected version (alternative to If-Match). Cannot disagree with header if both present.</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">title</span>
+                  <span class="param-type">string</span>
+                </div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">company</span>
+                  <span class="param-type">string</span>
+                </div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">amount_cents</span>
+                  <span class="param-type">integer</span>
+                </div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">currency</span>
+                  <span class="param-type">string</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Deal updated",
+  "deal": {
+    "id": 101,
+    "version": 4,
+    ...
+  }
+}</pre></div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 409 (Version Conflict)</h4>
+              <div class="code-block"><pre>{
+  "error": "Conflict",
+  "message": "Deal was modified (expected version 3, current is 5)",
+  "code": "VERSION_CONFLICT",
+  "currentVersion": 5,
+  "requestId": "req_abc123"
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/deals/:id/stage</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Advance deal stage. Validates state machine transitions. Not idempotent — advancing twice is two different outcomes, second returns 409.
+            </p>
+
+            <div class="subsection">
+              <h4>Request Body</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">to</span>
+                  <span class="param-type">string</span>
+                  <span class="param-required">required</span>
+                </div>
+                <div class="param-desc">Target stage (must be valid transition from current)</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Deal advanced to won",
+  "deal": {
+    "id": 101,
+    "stage": "won",
+    "version": 5,
+    ...
+  }
+}</pre></div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 409 (Illegal Transition)</h4>
+              <div class="code-block"><pre>{
+  "error": "Conflict",
+  "message": "Cannot advance from 'lead' to 'won'",
+  "code": "ILLEGAL_STAGE_TRANSITION",
+  "currentStage": "lead",
+  "allowedStages": ["qualified", "lost"],
+  "requestId": "req_abc123"
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method delete">DELETE</span>
+            <span class="endpoint-path">/api/deals/:id</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Delete deal. Idempotent (second delete returns 404). Non-admins can only delete own deals.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Deal deleted successfully"
+}</pre></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="notifications">
+        <h2>Notifications <span class="badge auth">Auth Required</span></h2>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method get">GET</span>
+            <span class="endpoint-path">/api/notifications</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              List caller's notifications, newest first. Keyset pagination by ID. Always scoped to authenticated user — no admin cross-user view.
+            </p>
+
+            <div class="subsection">
+              <h4>Query Parameters</h4>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">limit</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">Page size (default: 20, max: 100)</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">before</span>
+                  <span class="param-type">integer</span>
+                </div>
+                <div class="param-desc">Notification ID to continue from</div>
+              </div>
+              <div class="param">
+                <div class="param-header">
+                  <span class="param-name">unread</span>
+                  <span class="param-type">boolean</span>
+                </div>
+                <div class="param-desc">Filter to unread only</div>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Successfully retrieved notifications",
+  "notifications": [
+    {
+      "id": 501,
+      "kind": "deal.stage_changed",
+      "subject": "Deal advanced to won",
+      "body": "Enterprise License - Acme Corp moved to won",
+      "event_id": "evt_xyz789",
+      "created_at": "2026-09-09T09:45:00.000Z",
+      "read_at": null
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "returned": 1,
+    "hasMore": false,
+    "nextBefore": null
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="endpoint">
+          <div class="endpoint-header" onclick="toggleEndpoint(this)">
+            <span class="method post">POST</span>
+            <span class="endpoint-path">/api/notifications/:id/read</span>
+            <span class="endpoint-toggle">▼</span>
+          </div>
+          <div class="endpoint-body">
+            <p class="endpoint-description">
+              Mark notification as read. Idempotent — marking an already-read notification keeps original timestamp. Scoped to authenticated user.
+            </p>
+
+            <div class="subsection">
+              <h4>Response 200</h4>
+              <div class="code-block"><pre>{
+  "message": "Notification marked read",
+  "notification": {
+    "id": 501,
+    "kind": "deal.stage_changed",
+    "subject": "Deal advanced to won",
+    "read_at": "2026-09-09T10:05:23.456Z",
+    ...
+  }
+}</pre></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+let baseUrl = 'http://localhost:3000';
+
+function updateBaseUrl() {
+  const input = document.getElementById('baseUrl');
+  baseUrl = input.value.replace(/\/$/, '');
+  console.log('Base URL updated:', baseUrl);
+}
+
+function toggleEndpoint(header) {
+  const endpoint = header.parentElement;
+  endpoint.classList.toggle('expanded');
+}
+
+function clearForm(button) {
+  const form = button.closest('.try-it-form');
+  const inputs = form.querySelectorAll('input, textarea');
+  inputs.forEach(input => input.value = '');
+  const preview = form.parentElement.querySelector('.response-preview');
+  if (preview) preview.style.display = 'none';
+}
+
+async function tryRequest(method, path, button) {
+  const form = button.closest('.try-it-form');
+  const inputs = form.querySelectorAll('[data-field]');
+  const body = {};
+
+  inputs.forEach(input => {
+    const field = input.getAttribute('data-field');
+    if (input.value) {
+      body[field] = input.value;
+    }
+  });
+
+  const preview = form.parentElement.querySelector('.response-preview');
+  preview.style.display = 'block';
+  preview.innerHTML = '<div class="response-status">Sending...</div>';
+
+  try {
+    const url = baseUrl + path;
+    const options = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include'
+    };
+
+    if (method !== 'GET' && Object.keys(body).length > 0) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    const statusClass = response.ok ? 'success' : 'danger';
+    preview.innerHTML = `
+      <div class="response-status" style="color: var(--${statusClass}); background: var(--${statusClass}-bg);">
+        ${response.status} ${response.statusText}
+      </div>
+      <pre class="response-body">${JSON.stringify(data, null, 2)}</pre>
+    `;
+  } catch (error) {
+    preview.innerHTML = `
+      <div class="response-status" style="color: var(--danger); background: var(--danger-bg);">
+        Network Error
+      </div>
+      <pre class="response-body">${error.message}</pre>
+    `;
+  }
+}
+
+// Navigation highlighting
+const navLinks = document.querySelectorAll('nav a');
+const sections = document.querySelectorAll('main section');
+
+function highlightNav() {
+  let current = '';
+  sections.forEach(section => {
+    const sectionTop = section.offsetTop - 150;
+    if (window.scrollY >= sectionTop) {
+      current = section.getAttribute('id');
+    }
+  });
+
+  navLinks.forEach(link => {
+    link.classList.remove('active');
+    if (link.getAttribute('href') === `#${current}`) {
+      link.classList.add('active');
+    }
+  });
+}
+
+window.addEventListener('scroll', highlightNav);
+window.addEventListener('load', highlightNav);
+
+// Smooth scroll
+navLinks.forEach(link => {
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    const target = document.querySelector(link.getAttribute('href'));
+    if (target) {
+      window.scrollTo({
+        top: target.offsetTop - 100,
+        behavior: 'smooth'
+      });
+    }
+  });
+});
+</script>

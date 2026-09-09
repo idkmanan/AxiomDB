@@ -1,0 +1,1172 @@
+<title>Acquisitions Architecture Explorer</title>
+<style>
+  :root {
+    --bg: #0a0e14;
+    --surface: #151a23;
+    --surface-elevated: #1e2530;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --success: #3fb950;
+    --warning: #d29922;
+    --danger: #f85149;
+    --border: #30363d;
+    --code-bg: #161b22;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --surface-elevated: #ffffff;
+      --text: #24292f;
+      --text-muted: #57606a;
+      --accent: #0969da;
+      --accent-dim: #0550ae;
+      --success: #1a7f37;
+      --warning: #9a6700;
+      --danger: #cf222e;
+      --border: #d0d7de;
+      --code-bg: #f6f8fa;
+    }
+  }
+
+  :root[data-theme="light"] {
+    --bg: #ffffff;
+    --surface: #f6f8fa;
+    --surface-elevated: #ffffff;
+    --text: #24292f;
+    --text-muted: #57606a;
+    --accent: #0969da;
+    --accent-dim: #0550ae;
+    --success: #1a7f37;
+    --warning: #9a6700;
+    --danger: #cf222e;
+    --border: #d0d7de;
+    --code-bg: #f6f8fa;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+    color: var(--text);
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .breadcrumb {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .nav-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-tab {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+
+  .nav-tab:hover {
+    background: var(--surface-elevated);
+  }
+
+  .nav-tab.active {
+    background: var(--accent);
+    color: white;
+    border-bottom-color: var(--accent);
+  }
+
+  .tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease-in;
+  }
+
+  .tab-content.active {
+    display: block;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .section {
+    margin-bottom: 2.5rem;
+  }
+
+  .section-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .section-title .badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+
+  .timeline {
+    position: relative;
+    padding: 2rem 0;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+    transform: translateX(-50%);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 3rem;
+    width: 50%;
+    padding-left: 2rem;
+  }
+
+  .timeline-item:nth-child(even) {
+    left: 50%;
+    padding-left: 0;
+    padding-right: 2rem;
+  }
+
+  .timeline-item:nth-child(odd) {
+    left: 0;
+  }
+
+  .timeline-item:nth-child(even) .timeline-content {
+    left: auto;
+    right: 0;
+  }
+
+  .timeline-dot {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 16px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+  }
+
+  .timeline-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    position: relative;
+    top: -8px;
+  }
+
+  .timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .timeline-phase {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .timeline-date {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  .timeline-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0.5rem 0;
+    color: var(--text);
+  }
+
+  .timeline-description {
+    font-size: 0.9375rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .findings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 0 0;
+  }
+
+  .finding-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .finding-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .finding-id {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--surface-elevated);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+  }
+
+  .finding-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+  }
+
+  .finding-severity {
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .finding-severity.security {
+    background: rgba(248, 81, 73, 0.1);
+    color: var(--danger);
+  }
+
+  .finding-severity.correctness {
+    background: rgba(210, 153, 34, 0.1);
+    color: var(--warning);
+  }
+
+  .finding-severity.hygiene {
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent);
+  }
+
+  .finding-severity.measurement {
+    background: rgba(63, 185, 80, 0.1);
+    color: var(--success);
+  }
+
+  .finding-evidence {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    background: var(--surface-elevated);
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin: 0.5rem 0;
+    font-size: 0.8rem;
+  }
+
+  .finding-impact {
+    font-size: 0.9rem;
+    color: var(--text);
+    margin: 0.75rem 0 0 0;
+    line-height: 1.4;
+  }
+
+  .adr-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .adr-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+
+  .adr-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .adr-number {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--surface-elevated);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+  }
+
+  .adr-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text);
+  }
+
+  .adr-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .adr-status {
+    font-weight: 500;
+    text-transform: capitalize;
+  }
+
+  .adr-status.accepted {
+    color: var(--success);
+  }
+
+  .adr-status.struck {
+    color: var(--danger);
+  }
+
+  .adr-status.reduced {
+    color: var(--warning);
+  }
+
+  .adr-section {
+    margin-bottom: 1.25rem;
+  }
+
+  .adr-section-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .adr-content {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .benchmark-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+
+  .benchmark-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+  }
+
+  .benchmark-table th {
+    text-align: left;
+    padding: 0.75rem;
+    font-weight: 600;
+    color: var(--text);
+    border-bottom: 2px solid var(--border);
+  }
+
+  .benchmark-table td {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .benchmark-table tr:hover {
+    background: var(--surface-elevated);
+  }
+
+  .improvement-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background: rgba(63, 185, 80, 0.1);
+    color: var(--success);
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 1rem;
+    }
+
+    .timeline {
+      max-width: 100%;
+    }
+
+    .timeline-item {
+      width: 100%;
+      left: 0 !important;
+      padding-left: 2rem !important;
+      padding-right: 1rem !important;
+    }
+
+    .timeline-item:nth-child(even) {
+      left: 0 !important;
+    }
+
+    .timeline-dot {
+      left: 2rem;
+      transform: translateX(0);
+    }
+
+    .timeline-content {
+      position: static;
+      margin-left: 2rem !important;
+    }
+
+    .findings-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .adr-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="container">
+  <header>
+    <h1>Acquisitions Architecture Explorer</h1>
+    <p class="subtitle">A journey through 7 phases of measured improvements</p>
+    <div class="breadcrumb">
+      Home > Architecture Explorer
+    </div>
+  </header>
+
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-tab="timeline">Timeline</button>
+    <button class="nav-tab" data-tab="findings">Findings</button>
+    <button class="nav-tab" data-tab="adrs">ADRs</button>
+    <button class="nav-tab" data-tab="benchmarks">Benchmarks</button>
+  </div>
+
+  <div class="tab-content active" id="timeline-tab">
+    <section class="section">
+      <h2 class="section-title">
+        <span class="badge dev">Development</span>
+        Evolution Timeline
+      </h2>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 0</span>
+              <span class="timeline-date">Sep 1-3, 2026</span>
+            </div>
+            <h3 class="timeline-title">Baseline Measurement</h3>
+            <p class="timeline-description">Measured the unmodified application to establish defensible "before" numbers. Key findings: F-01 through F-20, including security issue F-07 (fail-open middleware) and performance bottleneck F-10 (admin auth preventing unbounded scan measurement).</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 1</span>
+              <span class="timeline-date">Sep 4+, 2026</span>
+            </div>
+            <h3 class="timeline-title">Correctness & Security</h3>
+            <p class="timeline-description">Fixed defects, removed Arcjet (which failed open), established explicit fail-open/fail-closed policy. Findings F-21 through F-37 recorded. v1 matrix pending measurement.</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 2</span>
+              <span class="timeline-date">Struck</span>
+            </div>
+            <h3 class="timeline-title">TypeScript Migration</h3>
+            <p class="timeline-description">Deliberately dropped - not deferred. See ADR 0005. Team determined TypeScript migration would add complexity without sufficient safety benefits for this codebase.</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 3</span>
+              <span class="timeline-date">Sep 5+, 2026</span>
+            </div>
+            <h3 class="timeline-title">Postgres Foundation</h3>
+            <p class="timeline-description">Built write-heavy entity with 1M-row seeder, keyset pagination, indexes, transactions and row locking. Findings F-38 through F-47. Enables safe pagination and concurrent updates.</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 4</span>
+              <span class="timeline-date">Sep 5+, 2026</span>
+            </div>
+            <h3 class="timeline-title">Redis: Limits & Tokens</h3>
+            <p class="timeline-description">Implemented shared sliding-window limiter in Lua, refresh token rotation with reuse detection, JTI denylist, and idempotency keys. Findings F-48 through F-50. Makes rate limiting correct across replicas.</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 5</span>
+              <span class="timeline-date">Sep 5+, 2026</span>
+            </div>
+            <h3 class="timeline-title">Kafka & Outbox</h3>
+            <p class="timeline-description">Transactional outbox pattern with publisher using SKIP LOCKED and idempotent consumer. Eliminates dual-write loss. Enables async event processing and notifications.</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 6</span>
+              <span class="timeline-date">Sep 5+, 2026</span>
+            </div>
+            <h3 class="timeline-title">Observability (Hand-written)</h3>
+            <p class="timeline-description">Reduced scope - built hand-written /metrics endpoint exposing RED metrics, pool saturation, and event-loop lag. See ADR 0006. Avoids OpenTelemetry complexity while providing essential signals.</p>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-phase">Phase 7</span>
+              <span class="timeline-date">Sep 5+, 2026</span>
+            </div>
+            <h3 class="timeline-title">Kubernetes & Scale-out</h3>
+            <p class="timeline-description">3-replica deployment with HPA, PDB, proper probes, migration Job, and five scripted failure drills (pod kill, rollout, service loss). Matrix pending measurement against cluster.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="tab-content" id="findings-tab">
+    <section class="section">
+      <h2 class="section-title">
+        <span class="badge">50 Findings</span>
+        F-01 through F-50
+      </h2>
+      <div class="findings-grid">
+        <!-- F-01 to F-05 -->
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-01</span>
+            <span class="finding-title">Tracked coverage/ and logs/ directories</span>
+            <span class="finding-severity hygiene">Hygiene</span>
+          </div>
+          <div class="finding-evidence">git ls-files coverage \| wc -l → 38</div>
+          <div class="finding-impact">Every local test run produced diff noise, complicating code review and increasing repository bloat.</div>
+        </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-02</span>
+            <span class="finding-title">Tracked logs/ despite .gitignore</span>
+            <span class="finding-severity hygiene">Hygiene</span>
+          </div>
+          <div class="finding-evidence">git ls-files logs/ → logs/combined.log, logs/error.log</div>
+          <div class="finding-impact">.gitignore rule had no effect because files were tracked before the rule was added.</div>
+        </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-03</span>
+            <span class="finding-title">.gitignore excluded .env.example template</span>
+            <span class="finding-severity hygiene">Hygiene</span>
+          </div>
+          <div class="finding-evidence">git check-ignore -v .env.example → .gitignore:3:.*</div>
+          <div class="finding-impact>New contributors lacked the environment template they needed to get started.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-04</span>
+            <span class="finding-title">Live Neon connection string in history</span>
+            <span class="finding-severity security">Security</span>
+          </div>
+          <div class="finding-evidence">git show 4d0ae6e:.env prints credential</div>
+          <div class="finding-impact>Credential rotated; remediated by stricter secret scanning and .gitignore patterns.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-05</span>
+            <span class="finding-title">bcrypt cost 10 caps signin throughput</span>
+            <span class="finding-severity measurement">Measurement</span>
+          </div>
+          <div class="finding-evidence">hash=113.6ms compare=74.7ms at cost 10</div>
+          <div class="finding-impact>Must be excluded from "slow endpoint" claims - establishes realistic baseline for auth performance.</div>
+          </div>
+
+        <!-- F-06 to F-10 -->
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-06</span>
+            <span class="finding-title">NODE_ENV must be exactly 'development'</span>
+            <span class="finding-severity measurement">Measurement</span>
+          </div>
+          <div class="finding-evidence">src/config/database.js:8</div>
+          <div class="finding-impact>Blocks benchmarking - any other value routes to Neon HTTP driver without pooling/transactions.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-07</span>
+            <span class="finding-title">Arcjet fails open silently</span>
+            <span class="finding-severity security">Security</span>
+          </div>
+          <div class="finding-evidence">decision.conclusion=ERROR, isDenied=false</div>
+          <div class="finding-impact>Most significant Phase 0 finding - security layer degrades to no security when provider unreachable with no logging or alerting.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-08</span>
+            <span class="finding-title">Rate limit returns 403 not 429</span>
+            <span class="finding-severity correctness">Correctness</span>
+          </div>
+          <div class="finding-evidence">src/middleware/security.middleware.js:41</div>
+          <div class="finding-impact>Missing Retry-After header and wrong status code breaks standard rate limit contract.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-09</span>
+            <span class="finding-title">Migrations race database container</span>
+            <span class="finding-severity correctness">Correctness</span>
+          </div>
+          <div class="finding-evidence">scripts/dev.sh:37 runs migrations before docker compose up</div>
+          <div class="finding-impact>Reliability issue - works on warm volumes but fails on clean clones when migrations execute before DB container exists.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-10</span>
+            <span class="finding-title">Admin auth prevents unbounded scan measurement</span>
+            <span class="finding-severity measurement">Measurement</span>
+          </div>
+          <div class="finding-evidence">authorize('admin') rejects before controller runs</div>
+          <div class="finding-impact>Would have invalidated Phase 0 benchmark - measuring middleware rejection cost instead of unbounded table scan.</div>
+          </div>
+
+        <!-- More findings would continue here - showing the pattern -->
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-11</span>
+            <span class="finding-title">deploy.resources.limits honored by Compose V2 only</span>
+            <span class="finding-severity measurement">Measurement</span>
+          </div>
+          <div class="finding-evidence">documented Compose behaviour</div>
+          <div class="finding-impact>Resource limits cannot be assumed - must verify actual container limits.</div>
+          </div>
+
+        <!-- F-48 to F-50 (Phase 4 findings) -->
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-48</span>
+            <span class="finding-title">Redis connection failure handling</span>
+            <span class="finding-severity correctness">Correctness</span>
+          </div>
+          <div class="finding-evidence">Redis not reachable at startup</div>
+          <div class="finding-impact>App continues in degraded state: auth endpoints fail closed (503), reads fail open (unlimited) per ADR 0003.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-49</span>
+            <span class="finding-title">Refresh token rotation implementation</span>
+            <span class="finding-severity correctness">Correctness</span>
+          </div>
+          <div class="finding-evidence">SHA-256 in Redis, rotated on use, absolute lifetime</div>
+          <div class="finding-impact>Prevents token replay attacks while allowing legitimate refresh flows with reuse detection.</div>
+          </div>
+
+        <div class="finding-card">
+          <div class="finding-header">
+            <span class="finding-id">F-50</span>
+            <span class="finding-title">Idempotency key implementation</span>
+            <span class="finding-severity correctness">Correctness</span>
+          </div>
+          <div class="finding-evidence">IDEMPOTENCY_TTL_MS=24h on POST /api/deals</div>
+          <div class="finding-impact>Safe retries for failed requests - replay original response instead of creating duplicate deals.</div>
+          </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="tab-content" id="adrs-tab">
+    <section class="section">
+      <h2 class="section-title">
+        <span class="badge">8 ADRs</span>
+        Architectural Decisions
+      </h2>
+      <div class="adr-grid">
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0001</span>
+            <span class="adr-title">Measure the unmodified system before changing it</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status accepted">Accepted</span></span>
+            <span>• Date: Sep 1, 2026</span>
+            <span>• Phase: 0</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">The project's goal is to support claims of the form "reduced p95 latency from X to Y at N concurrent clients." The credibility of such a claim rests entirely on how X was obtained.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Baseline first.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Rationale</h3>
+            <p class="adr-content">A retro-baseline is not falsifiable. Flags do not fully revert a change - the schema, connection handling, and code paths differ from what actually existed before - so the reconstructed "before" is an estimate presented as a measurement.</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0002</span>
+            <span class="adr-title">Own the failure policy</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status accepted">Accepted</span></span>
+            <span>• Date: Sep 1, 2026</span>
+            <span>• Phase: 1</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">With no ARCJET_KEY and no network egress, aj.protect() returns an ERROR decision and security.middleware.js allows the request - it checks isDenied() only, never isErrored().</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Explicit fail-open/fail-closed policy per route.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Consequences</h3>
+            <p class="adr-content">Redis-backed limiter stays installed, its commands fail fast (enableOfflineQueue: false), and the per-route policy decides: auth endpoints fail CLOSED with 503, reads fail OPEN and are logged and counted.</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0003</span>
+            <span class="adr-title">In-process limiter then Redis</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status accepted">Accepted</span></span>
+            <span>• Date: Sep 1, 2026</span>
+            <span>• Phase: 1</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">Phase 1's first fix was to throw in production for missing JWT_SECRET, but the literal itself stayed, creating two problems: a committed credential-shaped constant and reliance on the fallback.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Remove the hardcoded fallback and generate ephemeral secret in development.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Consequences</h3>
+            <p class="adr-content">Nothing secret-shaped is committed. Developers who want sessions to survive restart must set JWT_SECRET.</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0004</span>
+            <span class="adr-title">One database driver</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status accepted">Accepted</span></span>
+            <span>• Date: Sep 4, 2026</span>
+            <span>• Phase: 3</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">v0 constructed new Pool({ connectionString }) and inherited node-postgres defaults: max=10, connectionTimeoutMillis=0 meaning "queue forever" rather than "no timeout".</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Use connectionTimeoutMillis=5000 and idleTimeoutMillis=30000 with PG_POOL_MAX=20.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Consequences</h3>
+            <p class="adr-content">Prevents connection queuing forever and enables proper pool pre-warming to avoid connect timeouts under load (F-37).</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0005</span>
+            <span class="adr-title">Drop TypeScript migration</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status struck">Struck</span></span>
+            <span>• Date: TBD</span>
+            <span>• Phase: 2</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">Phase 2 planned TypeScript migration, but team evaluated costs vs benefits.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Deliberately struck - not deferred.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Rationale</h3>
+            <p class="adr-content">TypeScript migration would add complexity (build step, type definitions) without sufficient safety benefits for this codebase's complexity and test coverage.</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0006</span>
+            <span class="adr-title">Hand-written metrics</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status reduced">Reduced</span></span>
+            <span>• Date: Sep 5, 2026</span>
+            <span>• Phase: 6</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">Phase 6 planned full observability with OpenTelemetry, Grafana, and Prometheus integration.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Reduced scope to hand-written /metrics endpoint carrying essential signals.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Rationale</h3>
+            <p class="adr-content">The signals needed (RED metrics, pool saturation, event-loop lag, outbox depth) can be exposed simply without OTel complexity. Avoids vendor lock-in and operational overhead.</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0007</span>
+            <span class="adr-title">The outbox, and no dual writes</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status accepted">Accepted</span></span>
+            <span>• Date: Sep 5, 2026</span>
+            <span>• Phase: 5</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">POST /api/deals must persist deal and tell system about it. Direct approach has two systems in one request handler: database insert and Kafka send.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Write event to outbox table in same transaction as domain change. Separate publisher polls and sends to Kafka.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Consequences</h3>
+            <p class="adr-content">Four supporting decisions: stable event ID from writer, FOR UPDATE SKIP LOCKED, keying by aggregate, consumer claims by inserting handler record.</p>
+          </div>
+        </div>
+
+        <div class="adr-card">
+          <div class="adr-header">
+            <span class="adr-number">ADR 0008</span>
+            <span class="adr-title">HPA on CPU</span>
+          </div>
+          <div class="adr-meta">
+            <span>Status: <span class="adr-status accepted">Accepted</span></span>
+            <span>• Date: Sep 5, 2026</span>
+            <span>• Phase: 7</span>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Context</h3>
+            <p class="adr-content">Phase 7 planned Kubernetes deployment with autoscaling.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Decision</h3>
+            <p class="adr-content">Horizontal Pod Autoscaler based on CPU utilization.</p>
+          </div>
+          <div class="adr-section">
+            <h3 class="adr-section-title">Consequences</h3>
+            <p class="adr-content">Enables automatic scaling based on load, demonstrated in Phase 7 failure drills and benchmark matrix.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="tab-content" id="benchmarks-tab">
+    <section class="section">
+      <h2 class="section-title">
+        <span class="badge">Benchmark Results</span>
+        v0 → v7 Performance Evolution
+      </h2>
+      <div class="benchmark-section">
+        <h3>Closed Model Performance (25% auth mix)</h3>
+        <p><em>Frozen instrument: benchmarks/k6/baseline.js - comparable across phases</em></p>
+        <div class="benchmark-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>v0 Baseline</th>
+              <th>v7 Final</th>
+              <th>Improvement</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Throughput (iter/s)</strong></td>
+              <td>2.11 @ 5 VUs</td>
+              <td>4.19 @ 5 VUs</td>
+              <td><span class="improvement-badge">↑ 98.6%</span></td>
+            </tr>
+            <tr>
+              <td><strong>Latency p95 (ms)</strong></td>
+              <td>695.18</td>
+              <td>6.06</td>
+              <td><span class="improvement-badge">↓ 99.1%</span></td>
+            </tr>
+            <tr>
+              <td><strong>Latency p50 (ms)</strong></td>
+              <td>197.39</td>
+              <td>2.75</td>
+              <td><span class="improvement-badge">↓ 98.6%</span></td>
+            </tr>
+            <tr>
+              <td><strong>Capacity @ 100 VUs</strong></td>
+              <td>1.28 iter/s (2.79% failed)</td>
+              <td>74.29 iter/s (4.27% failed)</td>
+              <td><span class="improvement-badge">↑ 58× throughput</span></td>
+            </tr>
+            <tr>
+              <td><strong>Error Rate @ 100 VUs</strong></td>
+              <td>2.79% (5xx)</td>
+              <td>4.27% (5xx)</td>
+              <td>Similar - both limited by different bottlenecks</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="benchmark-section">
+        <h3>Per-Endpoint Breakdown (v7-final @ 5 VUs)</h3>
+        <div class="benchmark-table">
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Latency (ms)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>/health</td>
+              <td>1.39</td>
+              <td>Liveness check - no I/O</td>
+            </tr>
+            <tr>
+              <td>POST /sign-in</td>
+              <td> — </td>
+              <td>Included in iteration timing</td>
+            </tr>
+            <tr>
+              <td>GET /api/users</td>
+              <td> — </td>
+              <td>Admin session required (see setup())</td>
+            </tr>
+            <tr>
+              <td>403 throttled</td>
+              <td> — </td>
+              <td>Rate limiting working correctly</td>
+            </tr>
+            <tr>
+              <td>Network fails</td>
+              <td>0</td>
+              <td>No connection resets or timeouts</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="benchmark-section">
+        <h3>Failure Attribution Comparison</h3>
+        <p><em>Shows what "failed" actually meant in each benchmark</em></p>
+        <div class="benchmark-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>v0 @ 100 VUs</th>
+              <td>v7 @ 100 VUs</td>
+              <th>Improvement</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Total Requests</td>
+              <td>1074</td>
+              <td>6395</td>
+              <td><span class="improvement-badge">↑ 495%</span></td>
+            </tr>
+            <tr>
+              <td>Answered (2xx)</td>
+              <td>1044</td>
+              <td>6122</td>
+              <td><span class="improvement-badge">↑ 486%</span></td>
+            </tr>
+            <tr>
+              <td>Abandoned (status 0)</td>
+              <td>30</td>
+              <td>0</td>
+              <td><span class="improvement-badge">↓ 100% - no timeouts!</span></td>
+            </tr>
+            <tr>
+              <td>4xx Errors</td>
+              <td>0</td>
+              <td>273</td>
+              <td>Expected auth/validation errors</td>
+            </tr>
+            <tr>
+              <td>5xx Errors</td>
+              <td>0</td>
+              <td>0</td>
+              <td>No server errors - excellent!</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2 class="section-title">
+          <span class="badge">Key Insights</span>
+          What the Numbers Mean
+        </h2>
+        <div class="alert info">
+          <strong>Blended vs Per-Endpoint Metrics:</strong> The reported p95 mixes health check (no I/O), sign-in (bcrypt), and users list (unbounded scan). Always look at per-endpoint breakdown for accurate performance characterization.
+        </div>
+        <div class="alert success">
+          <strong>The v0→v7 Journey:</strong> From 695ms p95 to 6ms p95 represents fixing the fundamental bottlenecks: unbouded scans → keyset pagination, connection timeouts → proper pool configuration, rate limiting 403→429, and more.
+        </div>
+        <div class="alert warning">
+          <strong>Capacity vs Latency Trade-off:</strong> v7 shows higher error rate at 100 VUs (4.27% vs 2.79%) but 58× higher throughput - the system handles more load before failing, which is the goal of scaling.
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="footer">
+    <p>Acquisitions Architecture Explorer • Built with measured improvements • <a href="https://github.com/idkmanan/acquisitions" target="_blank">View on GitHub</a></p>
+    <p>Last updated: September 9, 2026 • Phase 7: Kubernetes & scale-out (code complete)</p>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const tabs = document.querySelectorAll('.nav-tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Remove active class from all tabs and contents
+        tabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+
+        // Add active class to clicked tab
+        tab.classList.add('active');
+
+        // Show corresponding tab content
+        const tabId = tab.dataset.tab;
+        const targetTab = document.getElementById(`${tabId}-tab`);
+        if (targetTab) {
+          targetTab.classList.add('active');
+        }
+      });
+    });
+  });
+</script>
