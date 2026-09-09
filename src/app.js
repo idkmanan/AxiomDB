@@ -10,6 +10,7 @@ import authRoutes from '#routes/auth.routes.js';
 import usersRoutes from '#routes/users.routes.js';
 import dealsRoutes from '#routes/deals.routes.js';
 import notificationsRoutes from '#routes/notifications.routes.js';
+import debugRoutes from '#routes/debug.routes.js';
 import { requestId } from '#middleware/request-id.middleware.js';
 import { requestLogger } from '#middleware/request-log.middleware.js';
 import { activeStoreName } from '#middleware/rate-limit.middleware.js';
@@ -214,6 +215,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/deals', dealsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/debug', debugRoutes);
 
 // Order matters and is load-bearing. The 404 handler must come after every route,
 // and the error handler must come last of all — Express selects error middleware
