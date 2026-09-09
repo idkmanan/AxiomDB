@@ -1,0 +1,270 @@
+=== before vus=5 ===
+2026-09-09T08:29:22Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-6949b9c8bc-5q87l         1/1     Running     0               15m     10.244.0.62   acquisitions-control-plane   <none>           <none>
+api-6949b9c8bc-6p6h5         1/1     Running     0               2m9s    10.244.0.66   acquisitions-control-plane   <none>           <none>
+api-6949b9c8bc-gq5lw         1/1     Running     0               2m14s   10.244.0.65   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               2m33s   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h24m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               6m2s    10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h24m ago)   43h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h24m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS            MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   17%/70%, 19%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-6949b9c8bc-5q87l         73m          44Mi            
+api-6949b9c8bc-6p6h5         43m          36Mi            
+api-6949b9c8bc-gq5lw         18m          31Mi            
+consumer-65bb9b6d9b-cvwzm    29m          33Mi            
+consumer-65bb9b6d9b-l7tg9    28m          32Mi            
+consumer-65bb9b6d9b-znz6j    27m          31Mi            
+kafka-0                      249m         742Mi           
+postgres-0                   43m          50Mi            
+publisher-567b8859ff-9m8fv   20m          37Mi            
+redis-684656d66d-zvxlh       15m          6Mi             
+=== after vus=5 ===
+2026-09-09T08:30:49Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-6949b9c8bc-5q87l         1/1     Running     0               17m     10.244.0.62   acquisitions-control-plane   <none>           <none>
+api-6949b9c8bc-6p6h5         1/1     Running     0               3m36s   10.244.0.66   acquisitions-control-plane   <none>           <none>
+api-6949b9c8bc-gq5lw         1/1     Running     0               3m41s   10.244.0.65   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               4m      10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h25m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               7m29s   10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h25m ago)   43h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h25m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS           MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   6%/70%, 20%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-6949b9c8bc-5q87l         25m          42Mi            
+api-6949b9c8bc-6p6h5         11m          39Mi            
+api-6949b9c8bc-gq5lw         16m          38Mi            
+consumer-65bb9b6d9b-cvwzm    23m          32Mi            
+consumer-65bb9b6d9b-l7tg9    24m          34Mi            
+consumer-65bb9b6d9b-znz6j    25m          31Mi            
+kafka-0                      173m         759Mi           
+postgres-0                   24m          46Mi            
+publisher-567b8859ff-9m8fv   19m          38Mi            
+redis-684656d66d-zvxlh       9m           4Mi             
+=== before vus=10 ===
+2026-09-09T08:31:35Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-96697d7-m9mb7            1/1     Running     0               36s     10.244.0.69   acquisitions-control-plane   <none>           <none>
+api-96697d7-x7h8r            1/1     Running     0               46s     10.244.0.67   acquisitions-control-plane   <none>           <none>
+api-96697d7-xwxsd            1/1     Running     0               41s     10.244.0.68   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               4m46s   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h26m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               8m15s   10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h26m ago)   44h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h26m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS           MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   1%/70%, 15%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-96697d7-m9mb7            131m         26Mi            
+api-96697d7-x7h8r            4m           29Mi            
+api-96697d7-xwxsd            4m           29Mi            
+consumer-65bb9b6d9b-cvwzm    27m          32Mi            
+consumer-65bb9b6d9b-l7tg9    24m          32Mi            
+consumer-65bb9b6d9b-znz6j    26m          31Mi            
+kafka-0                      275m         801Mi           
+postgres-0                   27m          82Mi            
+publisher-567b8859ff-9m8fv   19m          36Mi            
+redis-684656d66d-zvxlh       7m           5Mi             
+=== after vus=10 ===
+2026-09-09T08:33:02Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-96697d7-m9mb7            1/1     Running     0               2m3s    10.244.0.69   acquisitions-control-plane   <none>           <none>
+api-96697d7-x7h8r            1/1     Running     0               2m13s   10.244.0.67   acquisitions-control-plane   <none>           <none>
+api-96697d7-xwxsd            1/1     Running     0               2m8s    10.244.0.68   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               6m13s   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h27m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               9m42s   10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h27m ago)   44h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h27m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS            MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   11%/70%, 21%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-96697d7-m9mb7            38m          40Mi            
+api-96697d7-x7h8r            20m          43Mi            
+api-96697d7-xwxsd            29m          40Mi            
+consumer-65bb9b6d9b-cvwzm    24m          32Mi            
+consumer-65bb9b6d9b-l7tg9    24m          33Mi            
+consumer-65bb9b6d9b-znz6j    24m          31Mi            
+kafka-0                      215m         741Mi           
+postgres-0                   27m          47Mi            
+publisher-567b8859ff-9m8fv   16m          37Mi            
+redis-684656d66d-zvxlh       10m          5Mi             
+=== before vus=20 ===
+2026-09-09T08:33:53Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE    IP            NODE                         NOMINATED NODE   READINESS GATES
+api-76b9d54485-5tvq5         1/1     Running     0               41s    10.244.0.71   acquisitions-control-plane   <none>           <none>
+api-76b9d54485-mfthl         1/1     Running     0               48s    10.244.0.70   acquisitions-control-plane   <none>           <none>
+api-76b9d54485-mpxf7         1/1     Running     0               35s    10.244.0.72   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h    10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h    10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h    10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               7m3s   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h28m ago)   44h    10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               10m    10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h28m ago)   44h    10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h28m ago)   44h    10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS           MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   3%/70%, 14%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-76b9d54485-5tvq5         126m         27Mi            
+api-76b9d54485-mfthl         4m           29Mi            
+api-76b9d54485-mpxf7         11m          27Mi            
+consumer-65bb9b6d9b-cvwzm    25m          32Mi            
+consumer-65bb9b6d9b-l7tg9    25m          34Mi            
+consumer-65bb9b6d9b-znz6j    25m          31Mi            
+kafka-0                      161m         763Mi           
+postgres-0                   29m          85Mi            
+publisher-567b8859ff-9m8fv   19m          39Mi            
+redis-684656d66d-zvxlh       7m           6Mi             
+=== after vus=20 ===
+2026-09-09T08:35:19Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-76b9d54485-5tvq5         1/1     Running     0               2m7s    10.244.0.71   acquisitions-control-plane   <none>           <none>
+api-76b9d54485-mfthl         1/1     Running     0               2m14s   10.244.0.70   acquisitions-control-plane   <none>           <none>
+api-76b9d54485-mpxf7         1/1     Running     0               2m1s    10.244.0.72   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               8m29s   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h30m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               11m     10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h30m ago)   44h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h30m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS            MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   23%/70%, 21%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-76b9d54485-5tvq5         63m          42Mi            
+api-76b9d54485-mfthl         65m          40Mi            
+api-76b9d54485-mpxf7         47m          40Mi            
+consumer-65bb9b6d9b-cvwzm    27m          32Mi            
+consumer-65bb9b6d9b-l7tg9    26m          32Mi            
+consumer-65bb9b6d9b-znz6j    26m          32Mi            
+kafka-0                      195m         760Mi           
+postgres-0                   47m          51Mi            
+publisher-567b8859ff-9m8fv   21m          38Mi            
+redis-684656d66d-zvxlh       16m          5Mi             
+=== before vus=50 ===
+2026-09-09T08:36:05Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-85fc7465cc-45bf2         1/1     Running     0               41s     10.244.0.74   acquisitions-control-plane   <none>           <none>
+api-85fc7465cc-4fllp         1/1     Running     0               46s     10.244.0.73   acquisitions-control-plane   <none>           <none>
+api-85fc7465cc-4g94p         1/1     Running     0               36s     10.244.0.75   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    43h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    43h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    43h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               9m16s   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h30m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               12m     10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h30m ago)   44h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h30m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS           MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   1%/70%, 17%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-85fc7465cc-45bf2         4m           27Mi            
+api-85fc7465cc-4fllp         4m           43Mi            
+api-85fc7465cc-4g94p         145m         27Mi            
+consumer-65bb9b6d9b-cvwzm    24m          32Mi            
+consumer-65bb9b6d9b-l7tg9    24m          32Mi            
+consumer-65bb9b6d9b-znz6j    24m          32Mi            
+kafka-0                      187m         741Mi           
+postgres-0                   26m          69Mi            
+publisher-567b8859ff-9m8fv   20m          37Mi            
+redis-684656d66d-zvxlh       7m           5Mi             
+=== after vus=50 ===
+2026-09-09T08:37:32Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE     IP            NODE                         NOMINATED NODE   READINESS GATES
+api-85fc7465cc-45bf2         1/1     Running     0               2m8s    10.244.0.74   acquisitions-control-plane   <none>           <none>
+api-85fc7465cc-4fllp         1/1     Running     0               2m13s   10.244.0.73   acquisitions-control-plane   <none>           <none>
+api-85fc7465cc-4g94p         1/1     Running     0               2m3s    10.244.0.75   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    44h     10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    44h     10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    44h     10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               10m     10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h32m ago)   44h     10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               14m     10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h32m ago)   44h     10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h32m ago)   44h     10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS            MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   56%/70%, 21%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-85fc7465cc-45bf2         173m         41Mi            
+api-85fc7465cc-4fllp         127m         43Mi            
+api-85fc7465cc-4g94p         120m         41Mi            
+consumer-65bb9b6d9b-cvwzm    30m          32Mi            
+consumer-65bb9b6d9b-l7tg9    31m          34Mi            
+consumer-65bb9b6d9b-znz6j    30m          32Mi            
+kafka-0                      185m         747Mi           
+postgres-0                   81m          53Mi            
+publisher-567b8859ff-9m8fv   22m          37Mi            
+redis-684656d66d-zvxlh       32m          6Mi             
+=== before vus=100 ===
+2026-09-09T08:38:16Z
+--- pods ---
+NAME                         READY   STATUS      RESTARTS        AGE   IP            NODE                         NOMINATED NODE   READINESS GATES
+api-757cc7bc47-fkz4x         1/1     Running     0               42s   10.244.0.76   acquisitions-control-plane   <none>           <none>
+api-757cc7bc47-gcs8p         1/1     Running     0               35s   10.244.0.78   acquisitions-control-plane   <none>           <none>
+api-757cc7bc47-hpfg9         1/1     Running     0               38s   10.244.0.77   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-cvwzm    0/1     Running     191 (9h ago)    44h   10.244.0.14   acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-l7tg9    0/1     Running     195 (9h ago)    44h   10.244.0.3    acquisitions-control-plane   <none>           <none>
+consumer-65bb9b6d9b-znz6j    0/1     Running     192 (9h ago)    44h   10.244.0.13   acquisitions-control-plane   <none>           <none>
+db-migrate-brzzc             0/1     Completed   0               11m   10.244.0.64   acquisitions-control-plane   <none>           <none>
+kafka-0                      1/1     Running     3 (3h33m ago)   44h   10.244.0.6    acquisitions-control-plane   <none>           <none>
+postgres-0                   1/1     Running     0               14m   10.244.0.63   acquisitions-control-plane   <none>           <none>
+publisher-567b8859ff-9m8fv   0/1     Running     3 (3h33m ago)   44h   10.244.0.12   acquisitions-control-plane   <none>           <none>
+redis-684656d66d-zvxlh       1/1     Running     3 (3h33m ago)   44h   10.244.0.10   acquisitions-control-plane   <none>           <none>
+--- hpa ---
+NAME   REFERENCE        TARGETS           MINPODS   MAXPODS   REPLICAS   AGE
+api    Deployment/api   2%/70%, 17%/80%   3         9         3          44h
+--- top pods ---
+NAME                         CPU(cores)   MEMORY(bytes)   
+api-757cc7bc47-fkz4x         9m           46Mi            
+api-757cc7bc47-gcs8p         120m         27Mi            
+api-757cc7bc47-hpfg9         4m           27Mi            
+consumer-65bb9b6d9b-cvwzm    24m          32Mi            
+consumer-65bb9b6d9b-l7tg9    24m          34Mi            
+consumer-65bb9b6d9b-znz6j    23m          32Mi            
+kafka-0                      299m         829Mi           
+postgres-0                   22m          82Mi            
+publisher-567b8859ff-9m8fv   16m          37Mi            
+redis-684656d66d-zvxlh       6m           6Mi             

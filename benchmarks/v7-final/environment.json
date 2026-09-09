@@ -1,0 +1,28 @@
+{
+  "phase": "v7",
+  "captured_at": "2026-09-09T08:28:51Z",
+  "target": "kubernetes",
+  "base_url": "http://localhost:30080",
+  "git": { "short": "094b1ea", "tag": "unavailable" },
+  "cluster": {
+    "api_ready_replicas": "3",
+    "rate_limit_store": "RedisSlidingWindowStore",
+    "kubectl_version": "{  \"clientVersion\": {    \"major\": \"1\",    \"minor\": \"36\",    \"gitVersion\": \"v1.36.2\",    \"gitCommit\": \"24e2b02af5543d7910c2bb074c7264df5a8f0467\",    \"gitTreeState\": \"clean\",    \""
+  },
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "cpu_model": "11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz",
+    "cpu_count": 8,
+    "total_mem_mb": 7212,
+    "load_avg": [0.62, 0.97, 1.58]
+  },
+  "tooling": {
+    "node": "v22.22.1",
+    "k6": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+    "docker": "Docker version 29.6.2, build dfc4efb"
+  },
+  "k6": "k6 v2.2.0 (commit/00a9a1b7f5, go1.26.5, linux/amd64)",
+  "levels": "5 10 20 50 100 500 1000",
+  "script": "benchmarks/k6/full.js"
+}
