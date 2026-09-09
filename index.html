@@ -1,4 +1,4 @@
-<title>Acquisitions Live Metrics</title>
+<title>AxiomDB Live Metrics</title>
 <style>
   :root {
     --bg: #0a0e14;
@@ -389,7 +389,7 @@
 <div class="container">
   <header>
     <div class="header-content">
-      <h1>Acquisitions Live Metrics</h1>
+      <h1>AxiomDB Live Metrics</h1>
       <div class="header-meta">
         <span id="last-update">Last updated: Never</span>
         <span>•</span>
@@ -494,39 +494,84 @@
     <table class="comparison-table">
       <thead>
         <tr>
-          <th>Metric</th>
-          <th>v0 Baseline</th>
-          <th>v7 Final</th>
-          <th>Improvement</th>
+          <th>VUs</th>
+          <th>v0 Baseline (iter/s)</th>
+          <th>v7 Final (iter/s)</th>
+          <th>Throughput Improvement</th>
+          <th>v0 P95 Latency</th>
+          <th>v7 P95 Latency</th>
+          <th>Latency Improvement</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td><strong>Throughput</strong></td>
-          <td>2.11 iter/s @ 5 VUs</td>
-          <td>4.19 iter/s @ 5 VUs</td>
-          <td><span class="improvement">↑ 98.6% faster</span></td>
-        </tr>
-        <tr>
-          <td><strong>P95 Latency</strong></td>
+          <td>5</td>
+          <td>2.11</td>
+          <td>4.19</td>
+          <td><span class="improvement">↑ 98.6%</span></td>
           <td>695.18 ms</td>
           <td>6.06 ms</td>
-          <td><span class="improvement">↓ 99.1% reduction</span></td>
+          <td><span class="improvement">↓ 99.1%</span></td>
         </tr>
         <tr>
-          <td><strong>P50 Latency</strong></td>
-          <td>197.39 ms</td>
-          <td>2.75 ms</td>
-          <td><span class="improvement">↓ 98.6% reduction</span></td>
+          <td>10</td>
+          <td>2.24</td>
+          <td>8.42</td>
+          <td><span class="improvement">↑ 275.6%</span></td>
+          <td>1501.58 ms</td>
+          <td>6.67 ms</td>
+          <td><span class="improvement">↓ 99.6%</span></td>
         </tr>
         <tr>
-          <td><strong>Capacity @ 100 VUs</strong></td>
-          <td>1.28 iter/s (2.79% failed)</td>
-          <td>74.29 iter/s (4.27% failed)</td>
-          <td><span class="improvement">↑ 58× throughput</span></td>
+          <td>20</td>
+          <td>2.22</td>
+          <td>16.87</td>
+          <td><span class="improvement">↑ 660.9%</span></td>
+          <td>2791.28 ms</td>
+          <td>6.29 ms</td>
+          <td><span class="improvement">↓ 99.8%</span></td>
+        </tr>
+        <tr>
+          <td>50</td>
+          <td>2.35</td>
+          <td>42.20</td>
+          <td><span class="improvement">↑ 1697.8%</span></td>
+          <td>6407.28 ms</td>
+          <td>6.76 ms</td>
+          <td><span class="improvement">↓ 99.9%</span></td>
+        </tr>
+        <tr>
+          <td>100</td>
+          <td>1.28</td>
+          <td>74.29</td>
+          <td><span class="improvement">↑ 58×</span></td>
+          <td>33285.68 ms†</td>
+          <td>7.80 ms</td>
+          <td><span class="improvement">↓ 99.98%</span></td>
+        </tr>
+        <tr>
+          <td>500</td>
+          <td>3.46</td>
+          <td>315.64</td>
+          <td><span class="improvement">↑ 90×</span></td>
+          <td>60000.64 ms†</td>
+          <td>44.54 ms</td>
+          <td><span class="improvement">↓ 99.93%</span></td>
+        </tr>
+        <tr>
+          <td>1000</td>
+          <td>9.15</td>
+          <td>—</td>
+          <td><span class="improvement">N/A*</span></td>
+          <td>60000.24 ms†</td>
+          <td>47.13 ms</td>
+          <td><span class="improvement">↓ 99.92%</span></td>
         </tr>
       </tbody>
     </table>
+    <p class="metric-label" style="text-align: center; margin-top: 1rem; font-size: 0.875rem; color: var(--text-muted);">
+      † = timeout-censored (client gave up, not server response time) • * = v7 at 1000 VUs shows 50% failure rate
+    </p>
   </div>
 
   <div class="alert warning" id="no-data-alert" style="display: none;">

@@ -1,6 +1,6 @@
 {
-  "phase": "v1",
-  "captured_at": "2026-09-09T18:52:49.426Z",
+  "phase": "v3",
+  "captured_at": "2026-09-09T18:54:47.308Z",
   "git": {
     "commit": "435aa10d2c215006dae591a8cad7115e168e0903",
     "short": "435aa10",
@@ -14,9 +14,9 @@
     "cpu_count": 8,
     "total_mem_mb": 7212,
     "load_avg": [
-      2.93,
-      3.86,
-      3.22
+      1.42,
+      2.97,
+      2.97
     ]
   },
   "tooling": {
