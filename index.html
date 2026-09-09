@@ -632,11 +632,10 @@ function updateDashboard(metrics) {
     0;
   document.getElementById('request-rate').textContent = requestRate.toFixed(2);
 
-  // P95 latency - approximate from histogram buckets
+  // P95 latency - calculate from histogram buckets
   const durationBuckets = metrics.http_request_duration_seconds_bucket || [];
-  const p95Bucket = durationBuckets.find(m => m.labels.le === '0.1');
-  const p95Ms = p95Bucket ? (p95Bucket.value * 100).toFixed(2) : '—';
-  document.getElementById('p95-latency').textContent = p95Ms;
+  const p95Ms = calculateP95FromHistogram(durationBuckets);
+  document.getElementById('p95-latency').textContent = p95Ms !== null ? p95Ms.toFixed(2) : '—';
 
   // Error rate
   const total = metrics.http_requests_total?.reduce((sum, m) => sum + m.value, 0) || 0;
@@ -665,6 +664,77 @@ function updateDashboard(metrics) {
   const rateLimitFails = metrics.rate_limit_failures_total?.[0]?.value || 0;
   document.getElementById('rate-limit-hits').textContent = rateLimitHits.toFixed(0);
   document.getElementById('rate-limit-fails').textContent = rateLimitFails.toFixed(0);
+}
+
+function calculateP95FromHistogram(bucketMetrics) {
+  if (!bucketMetrics || bucketMetrics.length === 0) {
+    return null;
+  }
+
+  // Sort buckets by their upper bound (le), excluding +Inf
+  const sortedBuckets = [...bucketMetrics]
+    .filter(b => b.labels.le !== '+Inf')
+    .sort((a, b) => {
+      const leA = parseFloat(a.labels.le);
+      const leB = parseFloat(b.labels.le);
+      return leA - leB;
+    });
+
+  if (sortedBuckets.length === 0) {
+    return null;
+  }
+
+  // Get total count from the +Inf bucket (Prometheus histograms are cumulative)
+  const totalCountBucket = bucketMetrics.find(b => b.labels.le === '+Inf');
+  const totalCount = totalCountBucket ? totalCountBucket.value : sortedBuckets[sortedBuckets.length - 1].value;
+
+  if (totalCount === 0) {
+    return 0;
+  }
+
+  // Find the 95th percentile threshold
+  const targetCount = totalCount * 0.95;
+
+  // Find the bucket where the 95th percentile falls
+  // Prometheus buckets are CUMULATIVE - each bucket.value is the count of ALL observations <= le
+  for (let i = 0; i < sortedBuckets.length; i++) {
+    const bucket = sortedBuckets[i];
+    const cumulativeCount = bucket.value;
+
+    if (cumulativeCount >= targetCount) {
+      // We found the bucket containing the 95th percentile
+      const le = parseFloat(bucket.labels.le);
+
+      // If this is the first bucket, return its upper bound
+      if (i === 0) {
+        return le * 1000; // Convert to ms
+      }
+
+      // Otherwise, interpolate within the bucket
+      const prevBucket = sortedBuckets[i - 1];
+      const prevLe = parseFloat(prevBucket.labels.le);
+      const prevCumulative = prevBucket.value;
+
+      // Count in just this bucket (not cumulative)
+      const bucketCount = cumulativeCount - prevCumulative;
+
+      if (bucketCount === 0) {
+        // Empty bucket, use lower bound
+        return prevLe * 1000;
+      }
+
+      // How far into this bucket we need to go (0 to 1)
+      const bucketProgress = (targetCount - prevCumulative) / bucketCount;
+      const bucketWidth = le - prevLe;
+
+      const estimatedValue = prevLe + (bucketProgress * bucketWidth);
+      return estimatedValue * 1000; // Convert to ms
+    }
+  }
+
+  // If we get here, return the max bucket value
+  const maxLe = parseFloat(sortedBuckets[sortedBuckets.length - 1].labels.le);
+  return maxLe * 1000; // Convert to ms
 }
 
 // Show demo data on load
