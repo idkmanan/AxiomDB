@@ -24,9 +24,7 @@ router.get('/redis', async (req, res) => {
       redisUrlConfigured: Boolean(config.redis.url),
       redisUrlLength: config.redis.url?.length || 0,
       // Show sanitized URL - hide password but show host/port for debugging
-      redisUrlPattern: config.redis.url
-        ? config.redis.url.replace(/:([^@]+)@/, ':***@')
-        : null,
+      redisUrlPattern: config.redis.url ? config.redis.url.replace(/:([^@]+)@/, ':***@') : null,
       rateLimitStore: config.rateLimitStore,
       keyPrefix: config.redis.keyPrefix,
       connectTimeoutMs: config.redis.connectTimeoutMs,
