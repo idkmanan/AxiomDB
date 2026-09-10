@@ -1,4 +1,4 @@
-# Acquisitions
+# AxiomDB
 
 A secure, benchmarked Express + Drizzle + Postgres backend template. It is a
 working JSON API — cookie session auth, RBAC, rate limiting, pagination,
